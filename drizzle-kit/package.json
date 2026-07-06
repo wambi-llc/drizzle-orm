@@ -1,6 +1,6 @@
 {
-	"name": "drizzle-kit",
-	"version": "1.0.0-rc.4-wambi",
+	"name": "@wambi-llc/drizzle-kit",
+	"version": "1.0.0-rc.4-wambi.1",
 	"homepage": "https://orm.drizzle.team",
 	"keywords": [
 		"drizzle",
@@ -23,11 +23,12 @@
 		"agent-skills"
 	],
 	"publishConfig": {
-		"provenance": true
+		"registry": "https://npm.pkg.github.com",
+		"access": "restricted"
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/drizzle-team/drizzle-orm.git"
+		"url": "git+https://github.com/wambi-llc/drizzle-orm.git"
 	},
 	"author": "Drizzle Team",
 	"license": "MIT",
