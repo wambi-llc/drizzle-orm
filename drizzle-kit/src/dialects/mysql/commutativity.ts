@@ -10,6 +10,7 @@ import { drySnapshot, type MysqlSnapshot } from './snapshot';
 import type { JsonStatement } from './statements';
 
 type FootprintTarget = {
+	schema: string;
 	objectName: string;
 	columnName: string;
 };
@@ -21,8 +22,12 @@ type StatementDefinitions = CommutativityStatementDefinitions<
 	FootprintTarget
 >;
 
-function makeTarget(objectName: string, columnName = ''): FootprintTarget {
-	return { objectName, columnName };
+function makeTarget(schema: string, objectName: string, columnName = ''): FootprintTarget {
+	return { schema, objectName, columnName };
+}
+
+function makeSchemaTarget(schemaName: string): FootprintTarget {
+	return makeTarget(schemaName, '');
 }
 
 /**
@@ -35,8 +40,9 @@ function makeTarget(objectName: string, columnName = ''): FootprintTarget {
  *   2. `buildInfo`: which resource footprints this statement occupies.
  * - `buildInfo().primary` is the exact resource touched by the statement.
  * - `buildInfo().ancestors` are explicit parent resources, usually the owning table.
- * - Unlike Postgres, MySQL has no extra schema-level ancestry here, so matching is
- *   driven by exact targets plus table ancestors.
+ * - `getImplicitAncestors()` adds the database-level footprint for every target of a
+ *   non-default database (a `mysqlSchema()`/`mysqlDatabase()` one), so database
+ *   operations can conflict with tables, columns, indexes and views inside it.
  *
  * Practical guide for fixes:
  * - False positive or missed conflict for same-level objects like column->column,
@@ -47,6 +53,10 @@ function makeTarget(objectName: string, columnName = ''): FootprintTarget {
  *   table->column or table->index:
  *   adjust the child's `ancestors` in `buildInfo()` and/or the parent's
  *   `conflicts` array.
+ * - False positive or missed conflict for schema->table, schema->column,
+ *   schema->index or schema->view: first check `schemaConflictTypes`, because that
+ *   defines what schema operations conflict with. If schema ancestry itself is
+ *   wrong, adjust `getImplicitAncestors()`.
  * - Wrong human-readable conflict message only:
  *   change `describeStatement()` or `schemaLevelActions`. Those affect reporting,
  *   not matching semantics.
@@ -72,13 +82,61 @@ class MysqlCommutativity extends AbstractCommutativity<
 		'rename_view',
 	]);
 
+	private schemaConflictTypes: JsonStatement['type'][] = [
+		'create_schema',
+		'drop_schema',
+		'rename_schema',
+		'create_table',
+		'drop_table',
+		'rename_table',
+		'add_column',
+		'drop_column',
+		'alter_column',
+		'recreate_column',
+		'rename_column',
+		'create_index',
+		'drop_index',
+		'create_pk',
+		'drop_pk',
+		'create_fk',
+		'drop_constraint',
+		'create_check',
+		'create_view',
+		'drop_view',
+		'rename_view',
+		'alter_view',
+	];
+
 	protected override getStatementDefinitions(): StatementDefinitions {
 		return {
+			// Database operations
+			create_schema: {
+				conflicts: this.schemaConflictTypes,
+				buildInfo: (statement) => ({
+					primary: makeSchemaTarget(statement.name),
+					ancestors: [],
+				}),
+			},
+			drop_schema: {
+				conflicts: this.schemaConflictTypes,
+				buildInfo: (statement) => ({
+					primary: makeSchemaTarget(statement.name),
+					ancestors: [],
+				}),
+			},
+			rename_schema: {
+				conflicts: this.schemaConflictTypes,
+				buildInfo: (statement) => ({
+					primary: makeSchemaTarget(statement.from.name),
+					ancestors: [],
+				}),
+			},
+
 			// Table operations
 			create_table: {
 				conflicts: ['create_table', 'drop_table', 'rename_table'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.table.name),
+					primary: makeTarget(statement.table.schema, statement.table.name),
 					ancestors: [],
 				}),
 			},
@@ -95,7 +153,7 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'create_index',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.table),
+					primary: makeTarget(statement.schema, statement.table),
 					ancestors: [],
 				}),
 			},
@@ -107,7 +165,7 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'create_index',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.from),
+					primary: makeTarget(statement.schemaFrom, statement.from),
 					ancestors: [],
 				}),
 			},
@@ -122,8 +180,8 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'recreate_column',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.column.table, statement.column.name),
-					ancestors: [makeTarget(statement.column.table)],
+					primary: makeTarget(statement.column.schema, statement.column.table, statement.column.name),
+					ancestors: [makeTarget(statement.column.schema, statement.column.table)],
 				}),
 			},
 			drop_column: {
@@ -135,8 +193,8 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'recreate_column',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.column.table, statement.column.name),
-					ancestors: [makeTarget(statement.column.table)],
+					primary: makeTarget(statement.column.schema, statement.column.table, statement.column.name),
+					ancestors: [makeTarget(statement.column.schema, statement.column.table)],
 				}),
 			},
 			alter_column: {
@@ -148,8 +206,8 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'recreate_column',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.diff.table, statement.column.name),
-					ancestors: [makeTarget(statement.diff.table)],
+					primary: makeTarget(statement.diff.schema, statement.diff.table, statement.column.name),
+					ancestors: [makeTarget(statement.diff.schema, statement.diff.table)],
 				}),
 			},
 			recreate_column: {
@@ -161,8 +219,8 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'rename_column',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.column.table, statement.column.name),
-					ancestors: [makeTarget(statement.column.table)],
+					primary: makeTarget(statement.column.schema, statement.column.table, statement.column.name),
+					ancestors: [makeTarget(statement.column.schema, statement.column.table)],
 				}),
 			},
 			rename_column: {
@@ -174,8 +232,8 @@ class MysqlCommutativity extends AbstractCommutativity<
 					'rename_column',
 				],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.table, statement.from),
-					ancestors: [makeTarget(statement.table)],
+					primary: makeTarget(statement.schema, statement.table, statement.from),
+					ancestors: [makeTarget(statement.schema, statement.table)],
 				}),
 			},
 
@@ -183,15 +241,15 @@ class MysqlCommutativity extends AbstractCommutativity<
 			create_index: {
 				conflicts: ['create_index', 'drop_index', 'drop_table'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.index.table, statement.index.name),
-					ancestors: [makeTarget(statement.index.table)],
+					primary: makeTarget(statement.index.schema, statement.index.table, statement.index.name),
+					ancestors: [makeTarget(statement.index.schema, statement.index.table)],
 				}),
 			},
 			drop_index: {
 				conflicts: ['create_index', 'drop_index'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.index.table, statement.index.name),
-					ancestors: [makeTarget(statement.index.table)],
+					primary: makeTarget(statement.index.schema, statement.index.table, statement.index.name),
+					ancestors: [makeTarget(statement.index.schema, statement.index.table)],
 				}),
 			},
 
@@ -199,14 +257,14 @@ class MysqlCommutativity extends AbstractCommutativity<
 			drop_pk: {
 				conflicts: ['drop_pk', 'create_pk'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.pk.table),
+					primary: makeTarget(statement.pk.schema, statement.pk.table),
 					ancestors: [],
 				}),
 			},
 			create_pk: {
 				conflicts: ['drop_pk', 'create_pk'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.pk.table),
+					primary: makeTarget(statement.pk.schema, statement.pk.table),
 					ancestors: [],
 				}),
 			},
@@ -215,7 +273,7 @@ class MysqlCommutativity extends AbstractCommutativity<
 			create_fk: {
 				conflicts: ['create_fk', 'drop_constraint'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.fk.table),
+					primary: makeTarget(statement.fk.schema, statement.fk.table),
 					ancestors: [],
 				}),
 			},
@@ -224,7 +282,7 @@ class MysqlCommutativity extends AbstractCommutativity<
 			drop_constraint: {
 				conflicts: ['drop_constraint', 'create_fk', 'create_check'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.table),
+					primary: makeTarget(statement.schema, statement.table),
 					ancestors: [],
 				}),
 			},
@@ -233,7 +291,7 @@ class MysqlCommutativity extends AbstractCommutativity<
 			create_check: {
 				conflicts: ['create_check', 'drop_constraint'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.check.table),
+					primary: makeTarget(statement.check.schema, statement.check.table),
 					ancestors: [],
 				}),
 			},
@@ -242,47 +300,60 @@ class MysqlCommutativity extends AbstractCommutativity<
 			create_view: {
 				conflicts: ['create_view', 'drop_view', 'rename_view', 'alter_view'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.view.name),
+					primary: makeTarget(statement.view.schema, statement.view.name),
 					ancestors: [],
 				}),
 			},
 			drop_view: {
 				conflicts: ['create_view', 'drop_view', 'rename_view', 'alter_view'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.name),
+					primary: makeTarget(statement.schema, statement.name),
 					ancestors: [],
 				}),
 			},
 			rename_view: {
 				conflicts: ['create_view', 'drop_view', 'rename_view', 'alter_view'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.from),
+					primary: makeTarget(statement.schema, statement.from),
 					ancestors: [],
 				}),
 			},
 			alter_view: {
 				conflicts: ['create_view', 'drop_view', 'rename_view', 'alter_view'],
 				buildInfo: (statement) => ({
-					primary: makeTarget(statement.view.name),
+					primary: makeTarget(statement.view.schema, statement.view.name),
 					ancestors: [],
 				}),
 			},
 		};
 	}
 
+	protected override getImplicitAncestors(target: FootprintTarget): FootprintTarget[] {
+		if (target.schema === '' || (target.objectName === '' && target.columnName === '')) {
+			return [];
+		}
+
+		return [makeSchemaTarget(target.schema)];
+	}
+
 	protected override formatFootprintTarget(
 		action: JsonStatement['type'],
 		target: FootprintTarget,
 	): string {
-		return `${action};${target.objectName};${target.columnName}`;
+		return `${action};${target.schema};${target.objectName};${target.columnName}`;
 	}
 
 	protected override describeStatement(
 		_statement: JsonStatement,
 		info: StatementInfo,
 	): string {
+		if (info.action === 'create_schema' || info.action === 'drop_schema' || info.action === 'rename_schema') {
+			return `${info.action}: ${info.primary.schema} database`;
+		}
+
 		if (this.schemaLevelActions.has(info.action)) {
-			return `${info.action}: ${info.primary.objectName} in database`;
+			const container = info.primary.schema ? `${info.primary.schema} database` : 'database';
+			return `${info.action}: ${info.primary.objectName} in ${container}`;
 		}
 
 		if (info.primary.columnName) {
@@ -303,15 +374,24 @@ class MysqlCommutativity extends AbstractCommutativity<
 		_statement: JsonStatement,
 		info: StatementInfo,
 	): ConflictTarget {
+		if (info.action === 'create_schema' || info.action === 'drop_schema' || info.action === 'rename_schema') {
+			return { kind: 'schema', name: info.primary.schema };
+		}
+
 		if (this.viewLevelActions.has(info.action)) {
-			return { kind: 'view', name: info.primary.objectName };
+			return { kind: 'view', name: info.primary.objectName, schema: info.primary.schema || undefined };
 		}
 
 		if (info.primary.columnName) {
-			return { kind: 'column', name: info.primary.columnName, table: info.primary.objectName };
+			return {
+				kind: 'column',
+				name: info.primary.columnName,
+				table: info.primary.objectName,
+				schema: info.primary.schema || undefined,
+			};
 		}
 
-		return { kind: 'table', name: info.primary.objectName };
+		return { kind: 'table', name: info.primary.objectName, schema: info.primary.schema || undefined };
 	}
 
 	protected override getDrySnapshot(): MysqlSnapshot {

@@ -15,9 +15,14 @@ import { ddlDiff } from '../dialects/mysql/diff';
 import { fromDatabase as fd } from '../dialects/mysql/introspect';
 import { mockResolver } from '../utils/mocks';
 
-export type Interim<T> = Omit<T, 'entityType'>;
+// `schema`/`schemaTo` are the database names, optional for compatibility, '' is the default database
+export type Interim<T> = Omit<T, 'entityType' | 'schema' | 'schemaTo'> & {
+	schema?: string;
+	schemaTo?: T extends { schemaTo: string } ? string : never;
+};
 
 export type InterimTable = {
+	schema?: string;
 	name: string;
 	columns: Interim<InterimColumn>[];
 	indexes: Interim<Index>[];
@@ -27,6 +32,7 @@ export type InterimTable = {
 };
 
 export type InterimView = {
+	schema?: string;
 	name: string;
 	columns: Interim<Column>[];
 	definition: string;
@@ -46,6 +52,7 @@ const fromInterims = ({
 }: InterimStudioSchema): InterimSchema => {
 	const tbls: MysqlEntities['tables'][] = tables.map((it) => ({
 		entityType: 'tables',
+		schema: it.schema ?? '',
 		name: it.name,
 	}));
 	const columns: InterimColumn[] = tables
@@ -54,6 +61,7 @@ const fromInterims = ({
 				return {
 					entityType: 'columns',
 					...it,
+					schema: it.schema ?? table.schema ?? '',
 				} satisfies InterimColumn;
 			});
 		})
@@ -62,7 +70,7 @@ const fromInterims = ({
 	const indexes: Index[] = tables
 		.map((table) => {
 			return table.indexes.map((it) => {
-				return { entityType: 'indexes', ...it } satisfies Index;
+				return { entityType: 'indexes', ...it, schema: it.schema ?? table.schema ?? '' } satisfies Index;
 			});
 		})
 		.flat(1);
@@ -70,21 +78,26 @@ const fromInterims = ({
 	const checks: CheckConstraint[] = tables
 		.map((table) => {
 			return table.checks.map((it) => {
-				return { entityType: 'checks', ...it } satisfies CheckConstraint;
+				return { entityType: 'checks', ...it, schema: it.schema ?? table.schema ?? '' } satisfies CheckConstraint;
 			});
 		})
 		.flat(1);
 	const fks: ForeignKey[] = tables
 		.map((table) => {
 			return table.fks.map((it) => {
-				return { entityType: 'fks', ...it } satisfies ForeignKey;
+				return {
+					entityType: 'fks',
+					...it,
+					schema: it.schema ?? table.schema ?? '',
+					schemaTo: it.schemaTo ?? '',
+				} satisfies ForeignKey;
 			});
 		})
 		.flat(1);
 	const pks: PrimaryKey[] = tables
 		.map((table) => {
 			return table.pks.map((it) => {
-				return { entityType: 'pks', ...it } satisfies PrimaryKey;
+				return { entityType: 'pks', ...it, schema: it.schema ?? table.schema ?? '' } satisfies PrimaryKey;
 			});
 		})
 		.flat(1);
@@ -92,6 +105,7 @@ const fromInterims = ({
 	const vws: View[] = views.map(({ columns: _, ...it }) => {
 		return {
 			entityType: 'views',
+			schema: it.schema ?? '',
 			algorithm: it.algorithm,
 			definition: it.definition,
 			name: it.name,
@@ -105,12 +119,14 @@ const fromInterims = ({
 				return {
 					view: table.name,
 					...it,
+					schema: it.schema ?? table.schema ?? '',
 				} satisfies ViewColumn;
 			});
 		})
 		.flat(1);
 
 	return {
+		schemas: [],
 		tables: tbls,
 		columns: columns,
 		pks,
@@ -131,6 +147,7 @@ export const diffMySql = async (from: InterimStudioSchema, to: InterimStudioSche
 	const { sqlStatements, groupedStatements, statements } = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),

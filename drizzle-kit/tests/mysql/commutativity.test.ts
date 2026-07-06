@@ -7,7 +7,7 @@ const baseId = '00000000-0000-0000-0000-000000000000';
 
 function makeSnapshot(id: string, prevIds: string[], ddlEntities: any[] = []): MysqlSnapshot {
 	return {
-		version: '6',
+		version: '7',
 		dialect: 'mysql',
 		id,
 		prevIds,
@@ -40,8 +40,9 @@ describe('commutativity integration (mysql)', () => {
 		'Parent not empty: detects conflict when first migration of branch A has a conflict with the last migration of branch B',
 		async () => {
 			const parentDDL = createDDL();
-			parentDDL.tables.push({ name: 'users' });
+			parentDDL.tables.push({ schema: '', name: 'users' });
 			parentDDL.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -57,8 +58,9 @@ describe('commutativity integration (mysql)', () => {
 			const parent = makeSnapshot('p1', [baseId], parentDDL.entities.list());
 
 			const A = createDDL();
-			A.tables.push({ name: 'users' });
+			A.tables.push({ schema: '', name: 'users' });
 			A.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -74,8 +76,9 @@ describe('commutativity integration (mysql)', () => {
 			const leafA = makeSnapshot('a1', ['p1'], A.entities.list());
 
 			const A2 = createDDL();
-			A2.tables.push({ name: 'users' });
+			A2.tables.push({ schema: '', name: 'users' });
 			A2.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email2',
 				type: 'varchar(255)',
@@ -91,8 +94,9 @@ describe('commutativity integration (mysql)', () => {
 			const leafA2 = makeSnapshot('a2', ['a1'], A2.entities.list());
 
 			const B = createDDL();
-			B.tables.push({ name: 'users' });
+			B.tables.push({ schema: '', name: 'users' });
 			B.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -105,8 +109,9 @@ describe('commutativity integration (mysql)', () => {
 				collation: null,
 				generated: null,
 			} as any);
-			B.tables.push({ name: 'posts' });
+			B.tables.push({ schema: '', name: 'posts' });
 			B.columns.push({
+				schema: '',
 				table: 'posts',
 				name: 'content',
 				type: 'varchar(255)',
@@ -122,8 +127,9 @@ describe('commutativity integration (mysql)', () => {
 			const leafB = makeSnapshot('b1', ['p1'], B.entities.list());
 
 			const B2 = createDDL();
-			B2.tables.push({ name: 'users' });
+			B2.tables.push({ schema: '', name: 'users' });
 			B2.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -136,8 +142,9 @@ describe('commutativity integration (mysql)', () => {
 				collation: null,
 				generated: null,
 			} as any);
-			B2.tables.push({ name: 'posts' });
+			B2.tables.push({ schema: '', name: 'posts' });
 			B2.columns.push({
+				schema: '',
 				table: 'posts',
 				name: 'content',
 				type: 'varchar(255)',
@@ -153,8 +160,9 @@ describe('commutativity integration (mysql)', () => {
 			const leafB2 = makeSnapshot('b2', ['b1'], B2.entities.list());
 
 			const B3 = createDDL();
-			B3.tables.push({ name: 'posts' });
+			B3.tables.push({ schema: '', name: 'posts' });
 			B3.columns.push({
+				schema: '',
 				table: 'posts',
 				name: 'content',
 				type: 'varchar(255)',
@@ -188,8 +196,9 @@ describe('commutativity integration (mysql)', () => {
 		const parent = makeSnapshot('p1', [baseId], createDDL().entities.list());
 
 		const A = createDDL();
-		A.tables.push({ name: 'users' });
+		A.tables.push({ schema: '', name: 'users' });
 		A.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'email',
 			type: 'varchar(255)',
@@ -205,8 +214,9 @@ describe('commutativity integration (mysql)', () => {
 		const leafA = makeSnapshot('a1', ['p1'], A.entities.list());
 
 		const A2 = createDDL();
-		A2.tables.push({ name: 'posts' });
+		A2.tables.push({ schema: '', name: 'posts' });
 		A2.columns.push({
+			schema: '',
 			table: 'posts',
 			name: 'description',
 			type: 'varchar(255)',
@@ -222,8 +232,9 @@ describe('commutativity integration (mysql)', () => {
 		const leafA2 = makeSnapshot('a2', ['a1'], A2.entities.list());
 
 		const B = createDDL();
-		B.tables.push({ name: 'posts' });
+		B.tables.push({ schema: '', name: 'posts' });
 		B.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'content',
 			type: 'varchar(255)',
@@ -239,8 +250,9 @@ describe('commutativity integration (mysql)', () => {
 		const leafB = makeSnapshot('b1', ['p1'], B.entities.list());
 
 		const B2 = createDDL();
-		B2.tables.push({ name: 'posts' });
+		B2.tables.push({ schema: '', name: 'posts' });
 		B2.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'content',
 			type: 'varchar(255)',
@@ -256,8 +268,9 @@ describe('commutativity integration (mysql)', () => {
 		const leafB2 = makeSnapshot('b2', ['b1'], B2.entities.list());
 
 		const B3 = createDDL();
-		B3.tables.push({ name: 'posts' });
+		B3.tables.push({ schema: '', name: 'posts' });
 		B3.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'content',
 			type: 'varchar(255)',
@@ -270,8 +283,9 @@ describe('commutativity integration (mysql)', () => {
 			collation: null,
 			generated: null,
 		} as any);
-		B3.tables.push({ name: 'media' });
+		B3.tables.push({ schema: '', name: 'media' });
 		B3.columns.push({
+			schema: '',
 			table: 'media',
 			name: 'url',
 			type: 'varchar(255)',
@@ -304,8 +318,9 @@ describe('commutativity integration (mysql)', () => {
 		'detects conflict when drop table in one branch and add column in other',
 		async () => {
 			const parentDDL = createDDL();
-			parentDDL.tables.push({ name: 'users' });
+			parentDDL.tables.push({ schema: '', name: 'users' });
 			parentDDL.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -321,8 +336,9 @@ describe('commutativity integration (mysql)', () => {
 			const parent = makeSnapshot('p1', [baseId], parentDDL.entities.list());
 
 			const A = createDDL();
-			A.tables.push({ name: 'users' });
+			A.tables.push({ schema: '', name: 'users' });
 			A.columns.push({
+				schema: '',
 				table: 'users',
 				name: 'email',
 				type: 'varchar(255)',
@@ -355,8 +371,9 @@ describe('commutativity integration (mysql)', () => {
 		const parent = makeSnapshot('p1', [baseId], createDDL().entities.list());
 
 		const A = createDDL();
-		A.tables.push({ name: 'users' });
+		A.tables.push({ schema: '', name: 'users' });
 		A.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'email',
 			type: 'varchar(255)',
@@ -372,8 +389,9 @@ describe('commutativity integration (mysql)', () => {
 		const leafA = makeSnapshot('a1', ['p1'], A.entities.list());
 
 		const B = createDDL();
-		B.tables.push({ name: 'users' });
+		B.tables.push({ schema: '', name: 'users' });
 		B.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'email',
 			type: 'varchar(255)',
@@ -403,11 +421,11 @@ describe('commutativity integration (mysql)', () => {
 		const parent = makeSnapshot('p2', [baseId], createDDL().entities.list());
 
 		const A = createDDL();
-		A.tables.push({ name: 'users' });
+		A.tables.push({ schema: '', name: 'users' });
 		const leafA = makeSnapshot('a2', ['p2'], A.entities.list());
 
 		const B = createDDL();
-		B.tables.push({ name: 'posts' });
+		B.tables.push({ schema: '', name: 'posts' });
 		const leafB = makeSnapshot('b2', ['p2'], B.entities.list());
 
 		const os = require('os');
@@ -425,12 +443,13 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 'users' });
+		parent.tables.push({ schema: '', name: 'users' });
 		const p = makeSnapshot('p_col', [ORIGIN], parent.entities.list());
 
 		const a = createDDL();
-		a.tables.push({ name: 'users' });
+		a.tables.push({ schema: '', name: 'users' });
 		a.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'email',
 			type: 'varchar(255)',
@@ -445,8 +464,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const b = createDDL();
-		b.tables.push({ name: 'users' });
+		b.tables.push({ schema: '', name: 'users' });
 		b.columns.push({
+			schema: '',
 			table: 'users',
 			name: 'email',
 			type: 'varchar(255)',
@@ -475,8 +495,9 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 't1' });
+		parent.tables.push({ schema: '', name: 't1' });
 		parent.columns.push({
+			schema: '',
 			table: 't1',
 			name: 'c1',
 			type: 'varchar(255)',
@@ -493,8 +514,9 @@ describe('commutativity integration (mysql)', () => {
 
 		const a = createDDL(); // dropping table in branch A (no t1)
 		const b = createDDL();
-		b.tables.push({ name: 't1' });
+		b.tables.push({ schema: '', name: 't1' });
 		b.columns.push({
+			schema: '',
 			table: 't1',
 			name: 'c1',
 			type: 'varchar(255)',
@@ -525,8 +547,8 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 'orders' });
-		parent.tables.push({ name: 'invoices' });
+		parent.tables.push({ schema: '', name: 'orders' });
+		parent.tables.push({ schema: '', name: 'invoices' });
 		parent.columns.push(
 			{
 				table: 'orders',
@@ -558,8 +580,8 @@ describe('commutativity integration (mysql)', () => {
 		const p = makeSnapshot('p_idx', [ORIGIN], parent.entities.list());
 
 		const a = createDDL();
-		a.tables.push({ name: 'orders' });
-		a.tables.push({ name: 'invoices' });
+		a.tables.push({ schema: '', name: 'orders' });
+		a.tables.push({ schema: '', name: 'invoices' });
 		a.columns.push(
 			{
 				table: 'orders',
@@ -589,6 +611,7 @@ describe('commutativity integration (mysql)', () => {
 			} as any,
 		);
 		a.indexes.push({
+			schema: '',
 			table: 'orders',
 			nameExplicit: true,
 			name: 'orders_customer_id_idx',
@@ -600,8 +623,8 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const b = createDDL();
-		b.tables.push({ name: 'orders' });
-		b.tables.push({ name: 'invoices' });
+		b.tables.push({ schema: '', name: 'orders' });
+		b.tables.push({ schema: '', name: 'invoices' });
 		b.columns.push(
 			{
 				table: 'orders',
@@ -631,6 +654,7 @@ describe('commutativity integration (mysql)', () => {
 			} as any,
 		);
 		b.indexes.push({
+			schema: '',
 			table: 'invoices',
 			nameExplicit: true,
 			name: 'invoices_account_id_idx',
@@ -656,7 +680,7 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 'orders' });
+		parent.tables.push({ schema: '', name: 'orders' });
 		parent.columns.push(
 			{
 				table: 'orders',
@@ -688,7 +712,7 @@ describe('commutativity integration (mysql)', () => {
 		const p = makeSnapshot('p_idx_same_table', [ORIGIN], parent.entities.list());
 
 		const a = createDDL();
-		a.tables.push({ name: 'orders' });
+		a.tables.push({ schema: '', name: 'orders' });
 		a.columns.push(
 			{
 				table: 'orders',
@@ -718,6 +742,7 @@ describe('commutativity integration (mysql)', () => {
 			} as any,
 		);
 		a.indexes.push({
+			schema: '',
 			table: 'orders',
 			nameExplicit: true,
 			name: 'orders_customer_id_idx',
@@ -729,7 +754,7 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const b = createDDL();
-		b.tables.push({ name: 'orders' });
+		b.tables.push({ schema: '', name: 'orders' });
 		b.columns.push(
 			{
 				table: 'orders',
@@ -759,6 +784,7 @@ describe('commutativity integration (mysql)', () => {
 			} as any,
 		);
 		b.indexes.push({
+			schema: '',
 			table: 'orders',
 			nameExplicit: true,
 			name: 'orders_status_idx',
@@ -792,12 +818,13 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 't2' });
+		parent.tables.push({ schema: '', name: 't2' });
 		const p = makeSnapshot('p_uq', [ORIGIN], parent.entities.list());
 
 		const a = createDDL();
-		a.tables.push({ name: 't2' });
+		a.tables.push({ schema: '', name: 't2' });
 		a.indexes.push({
+			schema: '',
 			table: 't2',
 			nameExplicit: true,
 			name: 't2_uq',
@@ -809,8 +836,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const b = createDDL();
-		b.tables.push({ name: 't2' });
+		b.tables.push({ schema: '', name: 't2' });
 		b.indexes.push({
+			schema: '',
 			table: 't2',
 			nameExplicit: true,
 			name: 't2_uq',
@@ -838,6 +866,7 @@ describe('commutativity integration (mysql)', () => {
 		const p = makeSnapshot('p_view', [ORIGIN], createDDL().entities.list());
 		const a = createDDL();
 		a.views.push({
+			schema: '',
 			name: 'v1',
 			definition: 'select 1',
 			algorithm: 'undefined',
@@ -847,6 +876,7 @@ describe('commutativity integration (mysql)', () => {
 
 		const b = createDDL();
 		b.views.push({
+			schema: '',
 			name: 'v1',
 			definition: 'select 1',
 			algorithm: 'undefined',
@@ -869,12 +899,13 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const parent = createDDL();
-		parent.tables.push({ name: 't' });
+		parent.tables.push({ schema: '', name: 't' });
 		const p = makeSnapshot('p_three', [ORIGIN], parent.entities.list());
 
 		const a = createDDL();
-		a.tables.push({ name: 't' });
+		a.tables.push({ schema: '', name: 't' });
 		a.columns.push({
+			schema: '',
 			table: 't',
 			name: 'a',
 			type: 'varchar(255)',
@@ -889,8 +920,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const b = createDDL();
-		b.tables.push({ name: 't' });
+		b.tables.push({ schema: '', name: 't' });
 		b.columns.push({
+			schema: '',
 			table: 't',
 			name: 'a',
 			type: 'varchar(255)',
@@ -905,8 +937,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const c = createDDL();
-		c.tables.push({ name: 't' });
+		c.tables.push({ schema: '', name: 't' });
 		c.columns.push({
+			schema: '',
 			table: 't',
 			name: 'b',
 			type: 'varchar(255)',
@@ -937,12 +970,13 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const root = createDDL();
-		root.tables.push({ name: 't' });
+		root.tables.push({ schema: '', name: 't' });
 		const p = makeSnapshot('p_nested', [ORIGIN], root.entities.list());
 
 		const A = createDDL();
-		A.tables.push({ name: 't' });
+		A.tables.push({ schema: '', name: 't' });
 		A.columns.push({
+			schema: '',
 			table: 't',
 			name: 'c',
 			type: 'varchar(255)',
@@ -957,8 +991,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const A1 = createDDL();
-		A1.tables.push({ name: 't' });
+		A1.tables.push({ schema: '', name: 't' });
 		A1.columns.push({
+			schema: '',
 			table: 't',
 			name: 'c',
 			type: 'varchar(255)',
@@ -973,8 +1008,9 @@ describe('commutativity integration (mysql)', () => {
 		} as any);
 
 		const B = createDDL();
-		B.tables.push({ name: 't' });
+		B.tables.push({ schema: '', name: 't' });
 		B.columns.push({
+			schema: '',
 			table: 't',
 			name: 'd',
 			type: 'varchar(255)',
@@ -1004,14 +1040,15 @@ describe('commutativity integration (mysql)', () => {
 		const files: string[] = [];
 
 		const base = createDDL();
-		base.tables.push({ name: 'u' });
-		base.tables.push({ name: 'p' });
+		base.tables.push({ schema: '', name: 'u' });
+		base.tables.push({ schema: '', name: 'p' });
 		const p = makeSnapshot('p_mix', [ORIGIN], base.entities.list());
 
 		// Branch X: alter u.email, create view v_users
 		const X = createDDL();
-		X.tables.push({ name: 'u' });
+		X.tables.push({ schema: '', name: 'u' });
 		X.columns.push({
+			schema: '',
 			table: 'u',
 			name: 'email',
 			type: 'varchar(255)',
@@ -1025,6 +1062,7 @@ describe('commutativity integration (mysql)', () => {
 			generated: null,
 		} as any);
 		X.views.push({
+			schema: '',
 			name: 'v_users',
 			definition: 'select * from u',
 			algorithm: 'undefined',
@@ -1034,7 +1072,7 @@ describe('commutativity integration (mysql)', () => {
 
 		// Branch Y: drop table u (conflicts with X's column/view touching u)
 		const Y = createDDL();
-		Y.tables.push({ name: 'p' });
+		Y.tables.push({ schema: '', name: 'p' });
 		// no table u -> implies drop vs X touching u
 
 		files.push(

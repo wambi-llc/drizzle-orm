@@ -52,7 +52,7 @@ export const prepareSnapshot = async (
 	const prevIds = snapshots.length === 0 ? [prevSnapshot.id] : findLeafSnapshotIds(snapshots);
 
 	const snapshot = {
-		version: '2',
+		version: '3',
 		dialect: 'singlestore',
 		id,
 		prevIds,

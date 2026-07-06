@@ -10,7 +10,7 @@ import {
 import { suggestions as diffSuggestions } from '../../src/cli/commands/generate-mysql';
 import { introspect } from '../../src/cli/commands/pull-mysql';
 import { suggestions } from '../../src/cli/commands/push-mysql';
-import { upToV6 } from '../../src/cli/commands/up-mysql';
+import { upToV7 } from '../../src/cli/commands/up-mysql';
 import { runWithCliContext } from '../../src/cli/context';
 import { HintsHandler } from '../../src/cli/hints';
 import { configMigrations } from '../../src/cli/validations/common';
@@ -56,9 +56,10 @@ export const fromEntities = (entities: MysqlEntity[]) => {
 };
 
 export const drizzleToDDL = (sch: MysqlSchema) => {
+	const schemas = Object.values(sch).filter((it) => is(it, MySqlSchema)) as MySqlSchema[];
 	const tables = Object.values(sch).filter((it) => is(it, MySqlTable)) as MySqlTable[];
 	const views = Object.values(sch).filter((it) => is(it, MySqlView)) as MySqlView[];
-	return interimToDDL(fromDrizzleSchema(tables, views));
+	return interimToDDL(fromDrizzleSchema(schemas, tables, views));
 };
 
 export const diff = async (
@@ -81,6 +82,7 @@ export const diff = async (
 	const { sqlStatements, statements } = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
@@ -134,6 +136,7 @@ export const diffIntrospect = async (
 	]);
 
 	const interim = fromDrizzleSchema(
+		response.schemas,
 		response.tables,
 		response.views,
 	);
@@ -149,6 +152,7 @@ export const diffIntrospect = async (
 	} = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
@@ -180,14 +184,6 @@ export const push = async (config: {
 	const { db, to, log, expectError } = config;
 
 	const migrations = configMigrations.parse(config.migrationsConfig);
-	const { schema } = await introspect({
-		db,
-		database: 'drizzle',
-		filter: () => true,
-		progress: new EmptyProgressView(),
-		migrations,
-	});
-	const { ddl: ddl1, errors: err1 } = interimToDDL(schema);
 	const { ddl: ddl2, errors: err2 } = 'entities' in to && '_' in to
 		? { ddl: to as MysqlDDL, errors: [] }
 		: drizzleToDDL(to);
@@ -198,6 +194,35 @@ export const push = async (config: {
 		}
 		throw new Error('Schema2 Interim Error');
 	}
+
+	// mirrors `push-mysql`: a database declared with the connection's
+	// default database name is the default database
+	ddl2.schemas.delete({ name: 'drizzle' });
+	const normalized = ddl2.entities.update({ set: { schema: '' }, where: { schema: 'drizzle' } });
+	if (normalized.status === 'CONFLICT') {
+		throw new Error(
+			`entities declared within mysqlSchema("drizzle") conflict with the ones declared without a database`,
+		);
+	}
+	ddl2.fks.update({ set: { schemaTo: '' }, where: { schemaTo: 'drizzle' } });
+
+	const declaredSchemas = [
+		...new Set([
+			...ddl2.schemas.list().map((it) => it.name),
+			...ddl2.tables.list().map((it) => it.schema),
+			...ddl2.views.list().map((it) => it.schema),
+		]),
+	].filter((it) => it !== '');
+
+	const { schema } = await introspect({
+		db,
+		database: 'drizzle',
+		filter: () => true,
+		progress: new EmptyProgressView(),
+		migrations,
+		schemas: declaredSchemas,
+	});
+	const { ddl: ddl1, errors: err1 } = interimToDDL(schema);
 
 	if (err1.length > 0) {
 		for (const e of err1) {
@@ -210,6 +235,7 @@ export const push = async (config: {
 	const { sqlStatements, statements } = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
@@ -237,11 +263,13 @@ export const push = async (config: {
 				filter: () => true,
 				progress: new EmptyProgressView(),
 				migrations,
+				schemas: declaredSchemas,
 			});
 			const { ddl: ddl1, errors: err3 } = interimToDDL(schema);
 			const { sqlStatements, statements } = await ddlDiff(
 				ddl1,
 				ddl2,
+				mockResolver(renames),
 				mockResolver(renames),
 				mockResolver(renames),
 				mockResolver(renames),
@@ -313,7 +341,7 @@ export const diffDefault = async <T extends MySqlColumnBuilder>(
 	await tsc(file.file);
 
 	const response = await prepareFromSchemaFiles([path]);
-	const sch = fromDrizzleSchema(response.tables, response.views);
+	const sch = fromDrizzleSchema(response.schemas, response.tables, response.views);
 	const { ddl: ddl2, errors: e3 } = interimToDDL(sch);
 
 	const { sqlStatements: afterFileSqlStatements } = await ddlDiffDry(ddl1, ddl2, 'push');
@@ -406,7 +434,16 @@ export const prepareTestDatabase = async (): Promise<TestDatabase> => {
 				await client?.end().catch(console.error);
 			};
 			const clear = async () => {
-				await client.query(`drop database if exists \`drizzle\`;`);
+				// tests can create databases via mysqlSchema()/mysqlDatabase(), drop them all
+				const [databases] = await client.query(
+					`select SCHEMA_NAME from INFORMATION_SCHEMA.SCHEMATA where SCHEMA_NAME not in ('information_schema', 'mysql', 'performance_schema', 'sys');`,
+				);
+				// cross-database foreign keys block database drops
+				await client.query(`set foreign_key_checks = 0;`);
+				for (const { SCHEMA_NAME: database } of databases as { SCHEMA_NAME: string }[]) {
+					await client.query(`drop database if exists \`${database}\`;`);
+				}
+				await client.query(`set foreign_key_checks = 1;`);
 				await client.query(`create database \`drizzle\`;`);
 				await client.query(`use \`drizzle\`;`);
 			};
@@ -429,7 +466,7 @@ export const diffSnapshotV5 = async (db: DB, schema: MysqlSchema, oldSchema: Mys
 		await db.query(st);
 	}
 
-	const snapshot = upToV6(res);
+	const snapshot = upToV7(res);
 	const ddl = fromEntities(snapshot.ddl);
 
 	const { sqlStatements: st, next } = await diff(ddl, schema, []);
@@ -459,11 +496,11 @@ export async function conflictsFromSchema(
 		child2: SchemaShape;
 	},
 ) {
-	const parentInterim = fromDrizzleSchema(Object.values(parent.schema), []);
+	const parentInterim = fromDrizzleSchema([], Object.values(parent.schema), []);
 	const { ddl: parentDDL } = interimToDDL(parentInterim);
 
 	const parentSnapshot = {
-		version: '6',
+		version: '7',
 		dialect: 'mysql',
 		id: parent.id,
 		prevIds: parent.prevId ? [parent.prevId] : [],

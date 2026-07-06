@@ -147,8 +147,22 @@ export type UniqueConstraint = TypeOf<typeof uniqueConstraint>;
 export type SchemaV1 = TypeOf<typeof schemaV1>;
 
 const ddl = createDDL();
-export const snapshotValidator = validator({
+
+// v2 snapshots are entity lists too, only without the `schema`/`schemaTo` qualifiers
+// introduced in v3 (shared with the mysql DDL), `drizzle-kit up` backfills them with ''
+export const snapshotValidatorV2 = validator({
 	version: ['2'],
+	dialect: ['singlestore'],
+	id: 'string',
+	prevIds: array<string>((_) => true),
+	ddl: array<Record<string, unknown> & { entityType: string }>((it) =>
+		typeof it === 'object' && it !== null && typeof (it as Record<string, unknown>)['entityType'] === 'string'
+	),
+	renames: array<string>((_) => true),
+});
+
+export const snapshotValidator = validator({
+	version: ['3'],
 	dialect: ['singlestore'],
 	id: 'string',
 	prevIds: array<string>((_) => true),
@@ -156,15 +170,16 @@ export const snapshotValidator = validator({
 	renames: array<string>((_) => true),
 });
 
+export type SingleStoreSnapshotV2 = typeof snapshotValidatorV2.shape;
 export type SingleStoreSnapshot = typeof snapshotValidator.shape;
 
 export const toJsonSnapshot = (ddl: MysqlDDL, prevIds: string[], renames: string[]): SingleStoreSnapshot => {
-	return { dialect: 'singlestore', id: randomUUID(), prevIds, version: '2', ddl: ddl.entities.list(), renames };
+	return { dialect: 'singlestore', id: randomUUID(), prevIds, version: '3', ddl: ddl.entities.list(), renames };
 };
 
 export const drySnapshot = snapshotValidator.strict(
 	{
-		version: '2',
+		version: '3',
 		dialect: 'singlestore',
 		id: originUUID,
 		prevIds: [],

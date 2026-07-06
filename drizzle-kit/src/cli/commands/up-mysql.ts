@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { writeFileSync } from 'fs';
+import type { MysqlEntity } from '../../dialects/mysql/ddl';
 import { createDDL } from '../../dialects/mysql/ddl';
 import { Binary, Varbinary } from '../../dialects/mysql/grammar';
-import type { MysqlSchemaV6, MysqlSnapshot } from '../../dialects/mysql/snapshot';
+import type { MysqlSchemaV6, MysqlSnapshot, MysqlSnapshotV6 } from '../../dialects/mysql/snapshot';
 import { trimChar } from '../../utils';
 import { prepareOutFolder, validateWithReport } from '../../utils/utils-node';
 import { outputFormat } from '../context';
@@ -23,7 +24,7 @@ export const upMysqlHandler = (out: string): string[] => {
 		.forEach((it) => {
 			const path = it.path;
 
-			const snapshot = upToV6(it.raw);
+			const snapshot = upToV7(it.raw);
 
 			if (outputFormat() === 'text') console.log(`[${chalk.green('✓')}] ${path}`);
 
@@ -37,13 +38,39 @@ export const upMysqlHandler = (out: string): string[] => {
 	return upgraded;
 };
 
-export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
+export const upToV7 = (it: Record<string, any>): MysqlSnapshot => {
+	const raw = Number(it['version']) === 6 ? it as MysqlSnapshotV6 : upToV6(it);
+
+	// v7 qualified entities with the database name, '' stands for the default database
+	const ddl = raw.ddl.map((entity) => {
+		const { entityType } = entity;
+		if (entityType === 'fks') return { schema: '', schemaTo: '', ...entity };
+		if (
+			entityType === 'tables' || entityType === 'columns' || entityType === 'pks'
+			|| entityType === 'indexes' || entityType === 'checks' || entityType === 'views'
+		) {
+			return { schema: '', ...entity };
+		}
+		return entity;
+	}) as MysqlEntity[];
+
+	return {
+		version: '7',
+		dialect: 'mysql',
+		id: raw.id,
+		prevIds: raw.prevIds,
+		ddl,
+		renames: raw.renames as string[],
+	};
+};
+
+export const upToV6 = (it: Record<string, any>): MysqlSnapshotV6 => {
 	const json = it as MysqlSchemaV6;
 
 	const ddl = createDDL();
 
 	for (const table of Object.values(json.tables)) {
-		ddl.tables.push({ name: table.name });
+		ddl.tables.push({ schema: '', name: table.name });
 
 		for (const column of Object.values(table.columns)) {
 			let def = typeof column.default === 'undefined' ? null : String(column.default);
@@ -61,6 +88,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 			}
 
 			ddl.columns.push({
+				schema: '',
 				table: table.name,
 				name: column.name,
 				type: column.type,
@@ -101,6 +129,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 			});
 
 			ddl.indexes.push({
+				schema: '',
 				table: table.name,
 				name: index.name,
 				columns,
@@ -139,6 +168,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 					|| `${table.name}_${unique.columns.join('_')}` === unique.name;
 
 				ddl.indexes.push({
+					schema: '',
 					table: table.name,
 					name: unique.name,
 					columns,
@@ -157,10 +187,12 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 					=== fk.name;
 
 				ddl.fks.push({
+					schema: '',
 					table: table.name,
 					name: fk.name,
 					columns: fk.columnsFrom,
 					columnsTo: fk.columnsTo,
+					schemaTo: '',
 					tableTo: fk.tableTo,
 					onUpdate: (fk.onUpdate?.toUpperCase() as any) ?? null,
 					onDelete: (fk.onDelete?.toUpperCase() as any) ?? null,
@@ -172,6 +204,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 		if (table.checkConstraint) {
 			for (const check of Object.values(table.checkConstraint)) {
 				ddl.checks.push({
+					schema: '',
 					table: table.name,
 					name: check.name,
 					value: check.value,
@@ -180,6 +213,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 
 			for (const pk of Object.values(table.compositePrimaryKeys)) {
 				ddl.pks.push({
+					schema: '',
 					table: table.name,
 					name: 'PRIMARY',
 					columns: pk.columns,
@@ -191,6 +225,7 @@ export const upToV6 = (it: Record<string, any>): MysqlSnapshot => {
 	if (json.views) {
 		for (const view of Object.values(json.views)) {
 			ddl.views.push({
+				schema: '',
 				name: view.name,
 				algorithm: view.algorithm ?? null,
 				sqlSecurity: view.sqlSecurity ?? null,

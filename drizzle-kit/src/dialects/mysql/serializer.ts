@@ -48,7 +48,7 @@ export const prepareSnapshot = async (
 	}
 	const res = await prepareFromSchemaFiles(filenames);
 
-	const interim = fromDrizzleSchema(res.tables, res.views);
+	const interim = fromDrizzleSchema(res.schemas, res.tables, res.views);
 
 	const { ddl: ddlCur, errors: errors2 } = interimToDDL(interim);
 
@@ -65,7 +65,7 @@ export const prepareSnapshot = async (
 		: findLeafSnapshotIds(snapshots);
 
 	const snapshot = {
-		version: '6',
+		version: '7',
 		dialect: 'mysql',
 		id,
 		prevIds,
@@ -139,9 +139,30 @@ export function generateLatestSnapshot(
 
 	for (const statement of statements) {
 		switch (statement.type) {
+			case 'create_schema':
+				ddl.schemas.push({ name: statement.name });
+				break;
+			case 'drop_schema':
+				ddl.schemas.delete({ name: statement.name });
+				ddl.entities.delete({ schema: statement.name });
+				break;
+			case 'rename_schema':
+				ddl.schemas.update({
+					where: { name: statement.from.name },
+					set: { name: statement.to.name },
+				});
+				ddl.entities.update({
+					where: { schema: statement.from.name },
+					set: { schema: statement.to.name },
+				});
+				ddl.fks.update({
+					where: { schemaTo: statement.from.name },
+					set: { schemaTo: statement.to.name },
+				});
+				break;
 			case 'create_table': {
 				const table = statement.table;
-				ddl.tables.push({ name: table.name });
+				ddl.tables.push({ schema: table.schema, name: table.name });
 				for (const column of table.columns) {
 					ddl.columns.push(column);
 				}
@@ -160,42 +181,42 @@ export function generateLatestSnapshot(
 				break;
 			}
 			case 'drop_table':
-				ddl.tables.delete({ name: statement.table });
-				ddl.columns.delete({ table: statement.table });
-				ddl.indexes.delete({ table: statement.table });
-				ddl.pks.delete({ table: statement.table });
-				ddl.fks.delete({ table: statement.table });
-				ddl.fks.delete({ tableTo: statement.table });
-				ddl.checks.delete({ table: statement.table });
+				ddl.tables.delete({ schema: statement.schema, name: statement.table });
+				ddl.columns.delete({ schema: statement.schema, table: statement.table });
+				ddl.indexes.delete({ schema: statement.schema, table: statement.table });
+				ddl.pks.delete({ schema: statement.schema, table: statement.table });
+				ddl.fks.delete({ schema: statement.schema, table: statement.table });
+				ddl.fks.delete({ schemaTo: statement.schema, tableTo: statement.table });
+				ddl.checks.delete({ schema: statement.schema, table: statement.table });
 				break;
 			case 'rename_table':
 				ddl.tables.update({
-					where: { name: statement.from },
-					set: { name: statement.to },
+					where: { schema: statement.schemaFrom, name: statement.from },
+					set: { schema: statement.schemaTo, name: statement.to },
 				});
 				ddl.columns.update({
-					where: { table: statement.from },
-					set: { table: statement.to },
+					where: { schema: statement.schemaFrom, table: statement.from },
+					set: { schema: statement.schemaTo, table: statement.to },
 				});
 				ddl.indexes.update({
-					where: { table: statement.from },
-					set: { table: statement.to },
+					where: { schema: statement.schemaFrom, table: statement.from },
+					set: { schema: statement.schemaTo, table: statement.to },
 				});
 				ddl.pks.update({
-					where: { table: statement.from },
-					set: { table: statement.to },
+					where: { schema: statement.schemaFrom, table: statement.from },
+					set: { schema: statement.schemaTo, table: statement.to },
 				});
 				ddl.fks.update({
-					where: { table: statement.from },
-					set: { table: statement.to },
+					where: { schema: statement.schemaFrom, table: statement.from },
+					set: { schema: statement.schemaTo, table: statement.to },
 				});
 				ddl.fks.update({
-					where: { tableTo: statement.from },
-					set: { tableTo: statement.to },
+					where: { schemaTo: statement.schemaFrom, tableTo: statement.from },
+					set: { schemaTo: statement.schemaTo, tableTo: statement.to },
 				});
 				ddl.checks.update({
-					where: { table: statement.from },
-					set: { table: statement.to },
+					where: { schema: statement.schemaFrom, table: statement.from },
+					set: { schema: statement.schemaTo, table: statement.to },
 				});
 				break;
 
@@ -207,11 +228,11 @@ export function generateLatestSnapshot(
 				break;
 			case 'rename_column':
 				ddl.columns.update({
-					where: { table: statement.table, name: statement.from },
+					where: { schema: statement.schema, table: statement.table, name: statement.from },
 					set: { name: statement.to },
 				});
 				ddl.indexes.update({
-					where: { table: statement.table },
+					where: { schema: statement.schema, table: statement.table },
 					set: {
 						columns: (column) =>
 							column.value === statement.from
@@ -220,19 +241,19 @@ export function generateLatestSnapshot(
 					},
 				});
 				ddl.pks.update({
-					where: { table: statement.table },
+					where: { schema: statement.schema, table: statement.table },
 					set: {
 						columns: (column) => column === statement.from ? statement.to : column,
 					},
 				});
 				ddl.fks.update({
-					where: { table: statement.table },
+					where: { schema: statement.schema, table: statement.table },
 					set: {
 						columns: (column) => column === statement.from ? statement.to : column,
 					},
 				});
 				ddl.fks.update({
-					where: { tableTo: statement.table },
+					where: { schemaTo: statement.schema, tableTo: statement.table },
 					set: {
 						columnsTo: (column) => column === statement.from ? statement.to : column,
 					},
@@ -262,13 +283,15 @@ export function generateLatestSnapshot(
 				del(ddl.pks, statement.pk);
 				break;
 			case 'drop_constraint':
-				ddl.fks.delete({ table: statement.table, name: statement.constraint });
+				ddl.fks.delete({ schema: statement.schema, table: statement.table, name: statement.constraint });
 				ddl.checks.delete({
+					schema: statement.schema,
 					table: statement.table,
 					name: statement.constraint,
 				});
 				if (statement.constraint === 'PRIMARY') {
 					ddl.pks.delete({
+						schema: statement.schema,
 						table: statement.table,
 						name: statement.constraint,
 					});
@@ -279,11 +302,11 @@ export function generateLatestSnapshot(
 				push(ddl.views, statement.view);
 				break;
 			case 'drop_view':
-				del(ddl.views, { name: statement.name });
+				del(ddl.views, { schema: statement.schema, name: statement.name });
 				break;
 			case 'rename_view':
 				ddl.views.update({
-					where: { name: statement.from },
+					where: { schema: statement.schema, name: statement.from },
 					set: { name: statement.to },
 				});
 				break;

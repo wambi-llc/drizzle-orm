@@ -40,6 +40,7 @@ test('introspect primary keys', async () => {
 
 	expect(ddlAfterPull.pks.list()).toStrictEqual([{
 		entityType: 'pks',
+		schema: '',
 		table: 'users',
 		name: 'PRIMARY',
 		columns: ['id'],

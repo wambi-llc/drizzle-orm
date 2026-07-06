@@ -226,8 +226,22 @@ export type MysqlSchemaV6 = SchemaV6;
 export type MysqlSchema = Schema;
 
 const ddl = createDDL();
-export const snapshotValidator = validator({
+
+// v6 snapshots are entity lists too, only without the `schema`/`schemaTo` qualifiers
+// introduced in v7, `drizzle-kit up` backfills them with '' (the default database)
+export const snapshotValidatorV6 = validator({
 	version: ['6'],
+	dialect: ['mysql'],
+	id: 'string',
+	prevIds: array<string>((_) => true),
+	ddl: array<Record<string, unknown> & { entityType: string }>((it) =>
+		typeof it === 'object' && it !== null && typeof (it as Record<string, unknown>)['entityType'] === 'string'
+	),
+	renames: array<string>((_) => true),
+});
+
+export const snapshotValidator = validator({
+	version: ['7'],
 	dialect: ['mysql'],
 	id: 'string',
 	prevIds: array<string>((_) => true),
@@ -235,15 +249,16 @@ export const snapshotValidator = validator({
 	renames: array<string>((_) => true),
 });
 
+export type MysqlSnapshotV6 = typeof snapshotValidatorV6.shape;
 export type MysqlSnapshot = typeof snapshotValidator.shape;
 
 export const toJsonSnapshot = (ddl: MysqlDDL, prevIds: string[], renames: string[]): MysqlSnapshot => {
-	return { dialect: 'mysql', id: randomUUID(), prevIds, version: '6', ddl: ddl.entities.list(), renames };
+	return { dialect: 'mysql', id: randomUUID(), prevIds, version: '7', ddl: ddl.entities.list(), renames };
 };
 
 export const drySnapshot = snapshotValidator.strict(
 	{
-		version: '6',
+		version: '7',
 		dialect: 'mysql',
 		id: originUUID,
 		prevIds: [],

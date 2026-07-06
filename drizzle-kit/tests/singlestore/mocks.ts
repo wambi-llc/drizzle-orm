@@ -38,6 +38,7 @@ export const diff = async (
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
+		mockResolver(renames),
 		'default',
 	);
 	return { sqlStatements, statements };
@@ -84,6 +85,7 @@ export const pullDiff = async (
 	} = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
@@ -144,6 +146,7 @@ export const diffPush = async (config: {
 	const { sqlStatements, statements, groupedStatements } = await ddlDiff(
 		ddl1,
 		ddl2,
+		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),
 		mockResolver(renames),

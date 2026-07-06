@@ -10,6 +10,7 @@ import {
 	MySqlDateTime,
 	MySqlDialect,
 	MySqlEnumColumn,
+	MySqlSchema,
 	MySqlTable,
 	MySqlText,
 	MySqlTimestamp,
@@ -52,11 +53,13 @@ export const upper = <T extends string>(value: T | undefined): Uppercase<T> | nu
 };
 
 export const fromDrizzleSchema = (
+	drizzleSchemas: MySqlSchema[],
 	tables: AnyMySqlTable[],
 	views: MySqlView[],
 ): InterimSchema => {
 	const dialect = new MySqlDialect();
 	const result: InterimSchema = {
+		schemas: [],
 		tables: [],
 		columns: [],
 		pks: [],
@@ -67,22 +70,29 @@ export const fromDrizzleSchema = (
 		viewColumns: [],
 	};
 
+	// the same database can be redeclared across schema files, tables and views
+	// of a non-exported mysqlSchema() declare their database too
+	const schemaNames = new Set(drizzleSchemas.map((it) => it.schemaName));
+
 	for (const table of tables) {
 		const {
 			name: tableName,
 			columns,
 			indexes,
 			foreignKeys,
-			schema,
+			schema: tableSchema,
 			checks,
 			primaryKeys,
 			uniqueConstraints,
 		} = getTableConfig(table);
 
-		if (schema) continue;
+		// '' is the default database of the connection
+		const schema = tableSchema ?? '';
+		if (schema) schemaNames.add(schema);
 
 		result.tables.push({
 			entityType: 'tables',
+			schema,
 			name: tableName,
 		});
 
@@ -128,6 +138,7 @@ export const fromDrizzleSchema = (
 
 			result.columns.push({
 				entityType: 'columns',
+				schema,
 				table: tableName,
 				name,
 				type,
@@ -150,6 +161,7 @@ export const fromDrizzleSchema = (
 
 			result.pks.push({
 				entityType: 'pks',
+				schema,
 				table: tableName,
 				name: 'PRIMARY',
 				columns: columnNames,
@@ -171,6 +183,7 @@ export const fromDrizzleSchema = (
 
 			result.indexes.push({
 				entityType: 'indexes',
+				schema,
 				table: tableName,
 				name: name,
 				columns: columns,
@@ -188,6 +201,7 @@ export const fromDrizzleSchema = (
 
 			// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 			const tableTo = getTableName(referenceFT);
+			const schemaTo = getTableConfig(referenceFT).schema ?? '';
 
 			const columnsFrom = reference.columns.map((it) => it.name);
 			const columnsTo = reference.foreignColumns.map((it) => it.name);
@@ -198,9 +212,11 @@ export const fromDrizzleSchema = (
 
 			result.fks.push({
 				entityType: 'fks',
+				schema,
 				table: tableName,
 				name,
 				columns: columnsFrom,
+				schemaTo,
 				tableTo,
 				columnsTo,
 				onUpdate: upper(fk.onUpdate) ?? 'NO ACTION',
@@ -215,6 +231,7 @@ export const fromDrizzleSchema = (
 
 			result.indexes.push({
 				entityType: 'indexes',
+				schema,
 				table: tableName,
 				name,
 				columns: columns.map((it) => {
@@ -239,6 +256,7 @@ export const fromDrizzleSchema = (
 
 			result.checks.push({
 				entityType: 'checks',
+				schema,
 				table: tableName,
 				name,
 				value: dialect.sqlToQuery(value).sql,
@@ -265,6 +283,7 @@ export const fromDrizzleSchema = (
 		const {
 			isExisting,
 			name,
+			schema: viewSchema,
 			query,
 			selectedFields,
 			algorithm,
@@ -274,12 +293,16 @@ export const fromDrizzleSchema = (
 
 		if (isExisting) continue;
 
+		const schema = viewSchema ?? '';
+		if (schema) schemaNames.add(schema);
+
 		for (const key in selectedFields) {
 			if (is(selectedFields[key], MySqlColumn)) {
 				const column = selectedFields[key];
 				const notNull: boolean = column.notNull;
 
 				result.viewColumns.push({
+					schema,
 					view: name,
 					name: column.name,
 					type: column.getSQLType(),
@@ -290,6 +313,7 @@ export const fromDrizzleSchema = (
 
 		result.views.push({
 			entityType: 'views',
+			schema,
 			name,
 			definition: query ? dialect.sqlToQuery(query).sql : '',
 			withCheckOption: withCheckOption ?? null,
@@ -298,10 +322,13 @@ export const fromDrizzleSchema = (
 		});
 	}
 
+	result.schemas = [...schemaNames].map((it) => ({ entityType: 'schemas', name: it }));
+
 	return result;
 };
 
 export const prepareFromSchemaFiles = async (imports: string[]) => {
+	const schemas: MySqlSchema[] = [];
 	const tables: AnyMySqlTable[] = [];
 	const views: MySqlView[] = [];
 	const relations: Relations[] = [];
@@ -311,20 +338,26 @@ export const prepareFromSchemaFiles = async (imports: string[]) => {
 		const i0: Record<string, unknown> = await loadModule(it);
 		const prepared = prepareFromExports(i0);
 
+		schemas.push(...prepared.schemas);
 		tables.push(...prepared.tables);
 		views.push(...prepared.views);
 		relations.push(...prepared.relations);
 	}
-	return { tables: Array.from(new Set(tables)), views, relations };
+	return { schemas, tables: Array.from(new Set(tables)), views, relations };
 };
 
 export const prepareFromExports = (exports: Record<string, unknown>) => {
+	const schemas: MySqlSchema[] = [];
 	const tables: AnyMySqlTable[] = [];
 	const views: MySqlView[] = [];
 	const relations: Relations[] = [];
 
 	const i0values = Object.values(exports);
 	i0values.forEach((t) => {
+		if (is(t, MySqlSchema)) {
+			schemas.push(t);
+		}
+
 		if (is(t, MySqlTable)) {
 			tables.push(t);
 		}
@@ -338,5 +371,5 @@ export const prepareFromExports = (exports: Record<string, unknown>) => {
 		}
 	});
 
-	return { tables, views, relations };
+	return { schemas, tables, views, relations };
 };

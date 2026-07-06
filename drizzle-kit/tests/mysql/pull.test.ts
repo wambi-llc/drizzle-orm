@@ -637,7 +637,7 @@ test('introspect view with table filter', async () => {
 		() => {},
 		{ schema: 'drizzle', table: '__drizzle_migrations' },
 	));
-	const expectedTables = [{ entityType: 'tables', name: 'table1' }];
+	const expectedTables = [{ entityType: 'tables', schema: '', name: 'table1' }];
 	expect(tables).toStrictEqual(expectedTables);
 	expect(views).toStrictEqual([]);
 
@@ -657,6 +657,7 @@ test('introspect view with table filter', async () => {
 	const expectedViews = [
 		{
 			entityType: 'views',
+			schema: '',
 			name: 'view1',
 			definition: 'select `drizzle`.`table1`.`column1` AS `column1` from `drizzle`.`table1`',
 			algorithm: 'undefined',
@@ -715,6 +716,7 @@ test('pull after migrate with custom migrations table #1', async () => {
 	expect([...tables, ...pks]).toStrictEqual([
 		{
 			entityType: 'tables',
+			schema: '',
 			name: 'users',
 		},
 		{
@@ -723,6 +725,7 @@ test('pull after migrate with custom migrations table #1', async () => {
 			],
 			entityType: 'pks',
 			name: 'PRIMARY',
+			schema: '',
 			table: 'users',
 		},
 	]);
@@ -757,6 +760,7 @@ test('pull after migrate with custom migrations table #2', async () => {
 	expect([...tables, ...pks]).toStrictEqual([
 		{
 			entityType: 'tables',
+			schema: '',
 			name: 'users',
 		},
 		{
@@ -765,6 +769,7 @@ test('pull after migrate with custom migrations table #2', async () => {
 			],
 			entityType: 'pks',
 			name: 'PRIMARY',
+			schema: '',
 			table: 'users',
 		},
 	]);
@@ -887,6 +892,8 @@ test('fks with same names but in diff databases', async () => {
 		nameExplicit: true,
 		onDelete: 'NO ACTION',
 		onUpdate: 'NO ACTION',
+		schema: '',
+		schemaTo: '',
 		table: 'child',
 		tableTo: 'parent',
 	}]);
@@ -958,10 +965,12 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 	expect(ddlAfterPull.entities.list()).toStrictEqual([
 		{
 			entityType: 'tables',
+			schema: '',
 			name: 'base_table',
 		},
 		{
 			entityType: 'tables',
+			schema: '',
 			name: 'my_table',
 		},
 		{
@@ -975,6 +984,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			notNull: false,
 			onUpdateNow: false,
 			onUpdateNowFsp: null,
+			schema: '',
 			table: 'base_table',
 			type: 'int',
 		},
@@ -989,6 +999,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			notNull: false,
 			onUpdateNow: false,
 			onUpdateNowFsp: null,
+			schema: '',
 			table: 'base_table',
 			type: 'varchar(50)',
 		},
@@ -1003,6 +1014,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			notNull: true,
 			onUpdateNow: false,
 			onUpdateNowFsp: null,
+			schema: '',
 			table: 'my_table',
 			type: 'int',
 		},
@@ -1017,6 +1029,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			notNull: false,
 			onUpdateNow: false,
 			onUpdateNowFsp: null,
+			schema: '',
 			table: 'my_table',
 			type: 'int',
 		},
@@ -1026,6 +1039,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			],
 			entityType: 'pks',
 			name: 'PRIMARY',
+			schema: '',
 			table: 'my_table',
 		},
 		{
@@ -1041,6 +1055,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			lock: null,
 			name: 'idx_functional',
 			nameExplicit: true,
+			schema: '',
 			table: 'my_table',
 			using: null,
 		},
@@ -1049,6 +1064,7 @@ CREATE USER 'ghost_user'@'%' IDENTIFIED BY 'temp123';`);
 			definition:
 				'select `drizzle`.`base_table`.`id` AS `id`,`drizzle`.`base_table`.`name` AS `name` from `drizzle`.`base_table`',
 			entityType: 'views',
+			schema: '',
 			name: 'broken_view',
 			sqlSecurity: 'definer',
 			withCheckOption: null,

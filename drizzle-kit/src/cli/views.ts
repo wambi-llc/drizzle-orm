@@ -1159,10 +1159,13 @@ export const cockroachSchemaError = (error: CockroachSchemaError): string => {
 	assertUnreachable(error);
 };
 
+// '' is the default database of the connection and renders unqualified
+const mysqlKey = (schema: string, name: string) => schema ? `\`${schema}\`.\`${name}\`` : `\`${name}\``;
+
 export const mysqlSchemaError = (error: MysqlSchemaError): string => {
 	if (error.type === 'column_name_conflict') {
-		const { name, table } = error;
-		const tableName = chalk.underline.blue(`\`${table}\``);
+		const { name, schema, table } = error;
+		const tableName = chalk.underline.blue(mysqlKey(schema, table));
 		const columnName = chalk.underline.blue(`\`${name}\``);
 		return withStyle.errorWarning(
 			`There's a duplicate column name ${columnName} in ${tableName} table`,
@@ -1170,16 +1173,16 @@ export const mysqlSchemaError = (error: MysqlSchemaError): string => {
 	}
 
 	if (error.type === 'table_name_conflict') {
-		const { name: table } = error;
-		const tableName = chalk.underline.blue(`\`${table}\``);
+		const { schema, name: table } = error;
+		const tableName = chalk.underline.blue(mysqlKey(schema, table));
 		return withStyle.errorWarning(
 			`There's a duplicate table name ${tableName}`,
 		);
 	}
 
 	if (error.type === 'column_unsupported_unique') {
-		const { table, columns } = error;
-		const tableName = chalk.underline.blue(`\`${table}\``);
+		const { schema, table, columns } = error;
+		const tableName = chalk.underline.blue(mysqlKey(schema, table));
 		const columnsName = chalk.underline.blue(`\`${columns.join('`, `')}\``);
 
 		const warningText = `You tried to add${columns.length > 1 ? ` COMPOSITE` : ''} UNIQUE on ${columnsName} ${
@@ -1196,8 +1199,8 @@ const users = mysqlTable('users', {
 	}
 
 	if (error.type === 'column_unsupported_default_on_autoincrement') {
-		const { table, column } = error;
-		const tableName = chalk.underline.blue(`\`${table}\``);
+		const { schema, table, column } = error;
+		const tableName = chalk.underline.blue(mysqlKey(schema, table));
 		const columnName = chalk.underline.blue(`\`${column}\``);
 
 		const warningText =

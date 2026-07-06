@@ -1,4 +1,12 @@
-import { type Column, createDDL, interimToDDL, type MysqlDDL, type Table, type View } from '../../dialects/mysql/ddl';
+import {
+	type Column,
+	createDDL,
+	interimToDDL,
+	type MysqlDDL,
+	type Schema,
+	type Table,
+	type View,
+} from '../../dialects/mysql/ddl';
 import { ddlDiff, ddlDiffDry } from '../../dialects/mysql/diff';
 import { fromDrizzleSchema, prepareFromSchemaFiles } from '../../dialects/mysql/drizzle';
 import { prepareSnapshot } from '../../dialects/mysql/serializer';
@@ -22,12 +30,34 @@ export const suggestions = (
 		hints: [],
 	};
 
-	for (const statement of jsonStatements) {
-		if (statement.type === 'create_fk' && statement.cause !== 'alter_pk') {
-			const { columnsTo, table, tableTo, columns } = statement.fk;
+	// MySQL resolves unqualified table references against the table's own database,
+	// so a table of another database can't reference a table of the connection's
+	// default database — there's no name to qualify it with at generate time
+	const crossDatabaseFkError = (fk: { schema: string; table: string; tableTo: string }) => {
+		return `You are trying to add a reference from "${fk.table}" in "${fk.schema}" database to "${fk.tableTo}" in the default database of the connection. `
+			+ `MySQL can not reference the default database from another one, declare the referenced database explicitly with mysqlSchema()/mysqlDatabase()`;
+	};
 
-			const indexes = ddl2.indexes.list({ isUnique: true, table: tableTo });
-			const pk = ddl2.pks.one({ table: tableTo });
+	for (const statement of jsonStatements) {
+		if (statement.type === 'create_table') {
+			for (const fk of statement.table.fks) {
+				if (fk.schema !== '' && fk.schemaTo === '') {
+					grouped.errors.push(crossDatabaseFkError(fk));
+				}
+			}
+			continue;
+		}
+
+		if (statement.type === 'create_fk' && statement.fk.schema !== '' && statement.fk.schemaTo === '') {
+			grouped.errors.push(crossDatabaseFkError(statement.fk));
+			continue;
+		}
+
+		if (statement.type === 'create_fk' && statement.cause !== 'alter_pk') {
+			const { columnsTo, table, schemaTo, tableTo, columns } = statement.fk;
+
+			const indexes = ddl2.indexes.list({ isUnique: true, schema: schemaTo, table: tableTo });
+			const pk = ddl2.pks.one({ schema: schemaTo, table: tableTo });
 
 			const columnsToSet = new Set(columnsTo);
 
@@ -58,10 +88,10 @@ export const suggestions = (
 		}
 
 		if (statement.type === 'drop_pk') {
-			const { table, columns } = statement.pk;
+			const { schema, table, columns } = statement.pk;
 
-			const fks = ddl2.fks.list({ tableTo: table });
-			const indexes = ddl2.indexes.list({ table: table });
+			const fks = ddl2.fks.list({ schemaTo: schema, tableTo: table });
+			const indexes = ddl2.indexes.list({ schema, table });
 
 			const fkFound = fks.filter((fk) => {
 				if (fk.columnsTo.length !== columns.length) return false;
@@ -131,6 +161,7 @@ export const handle = async (
 	const { sqlStatements, renames, groupedStatements, statements } = await ddlDiff(
 		ddlPrev,
 		ddlCur,
+		resolver<Schema>('schema', config.hints),
 		resolver<Table>('table', config.hints),
 		resolver<Column>('column', config.hints),
 		resolver<View>('view', config.hints),
@@ -177,7 +208,7 @@ export const handle = async (
 
 export const handleExport = async (config: ExportConfig) => {
 	const res = await prepareFromSchemaFiles(config.filenames);
-	const schema = fromDrizzleSchema(res.tables, res.views);
+	const schema = fromDrizzleSchema(res.schemas, res.tables, res.views);
 	const { ddl, errors } = interimToDDL(schema);
 
 	if (errors.length > 0) {

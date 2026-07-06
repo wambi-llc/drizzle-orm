@@ -22,7 +22,16 @@ export const ddlDiff = async (
 	groupedStatements: { jsonStatement: JsonStatement; sqlStatements: string[] }[];
 	renames: string[];
 }> => {
-	const res = await mysqlDdlDiff(ddl1, ddl2, tablesResolver, columnsResolver, viewsResolver, mode);
+	// singlestore doesn't support schemas, so there's nothing to resolve for them
+	const res = await mysqlDdlDiff(
+		ddl1,
+		ddl2,
+		mockResolver(new Set()),
+		tablesResolver,
+		columnsResolver,
+		viewsResolver,
+		mode,
+	);
 
 	const statements: JsonStatement[] = [];
 	const sqlStatements: string[] = [];

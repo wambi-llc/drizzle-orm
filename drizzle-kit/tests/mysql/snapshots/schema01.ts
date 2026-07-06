@@ -185,7 +185,7 @@ export const analyticsEvents = analytics.table(
 	'events',
 	{
 		id: serial('id').primaryKey(),
-		userId: int('user_id').references(() => users.id, { onDelete: 'set null' }),
+		userId: int('user_id'),
 		type: varchar('type', { length: 64 }).notNull(),
 		payload: json('payload').default({}),
 		occurredAt: timestamp('occurred_at', { fsp: 3 }).notNull().defaultNow(),

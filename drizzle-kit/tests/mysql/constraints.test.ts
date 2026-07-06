@@ -114,41 +114,49 @@ test('unique constraint errors #1', async () => {
 	expect(ddl2Err).toStrictEqual([
 		{
 			columns: ['column1'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column2'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column3'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column4'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column5'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column6'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column7'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
 		{
 			columns: ['column8'],
+			schema: '',
 			table: 'table',
 			type: 'column_unsupported_unique',
 		},
@@ -192,41 +200,49 @@ test('unique constraint errors #2', async () => {
 		[
 			{
 				columns: ['column1'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column2'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column3'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column4'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column5'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column6'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column7'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
 			{
 				columns: ['column8'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
@@ -272,6 +288,7 @@ test('unique constraint errors #3', async () => {
 		[
 			{
 				columns: ['column1', 'column2', 'column3', 'column4', 'column5', 'column6', 'column7', 'column8'],
+				schema: '',
 				table: 'table',
 				type: 'column_unsupported_unique',
 			},
@@ -1339,7 +1356,7 @@ test('changing a column type records a `type_change` confirm_data_loss missing h
 		{
 			type: 'confirm_data_loss',
 			kind: 'column',
-			entity: ['public', 'users', 'age'],
+			entity: ['', 'users', 'age'],
 			reason: 'type_change',
 			reason_details: { from: 'int', to: 'varchar(50)' },
 		},

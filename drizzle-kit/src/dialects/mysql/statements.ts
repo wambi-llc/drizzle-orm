@@ -1,5 +1,31 @@
 import type { Simplify } from '../../utils';
-import type { CheckConstraint, Column, DiffEntities, ForeignKey, Index, PrimaryKey, TableFull, View } from './ddl';
+import type {
+	CheckConstraint,
+	Column,
+	DiffEntities,
+	ForeignKey,
+	Index,
+	PrimaryKey,
+	Schema,
+	TableFull,
+	View,
+} from './ddl';
+
+export interface CreateSchema {
+	type: 'create_schema';
+	name: string;
+}
+
+export interface DropSchema {
+	type: 'drop_schema';
+	name: string;
+}
+
+export interface RenameSchema {
+	type: 'rename_schema';
+	from: Schema;
+	to: Schema;
+}
 
 export interface CreateTable {
 	type: 'create_table';
@@ -8,11 +34,16 @@ export interface CreateTable {
 
 export interface DropTable {
 	type: 'drop_table';
+	schema: string;
 	table: string;
 }
+
+// also handles moving tables between databases: `RENAME TABLE `db1`.`t` TO `db2`.`t``
 export interface RenameTable {
 	type: 'rename_table';
+	schemaFrom: string;
 	from: string;
+	schemaTo: string;
 	to: string;
 }
 
@@ -29,6 +60,7 @@ export interface DropColumn {
 
 export interface RenameColumn {
 	type: 'rename_column';
+	schema: string;
 	table: string;
 	from: string;
 	to: string;
@@ -42,6 +74,7 @@ export interface AlterColumn {
 	wasPK: boolean;
 	origin: {
 		column: string;
+		schema: string;
 		table: string;
 	};
 }
@@ -86,6 +119,7 @@ export interface DropPK {
 
 export interface DropConstraint {
 	type: 'drop_constraint';
+	schema: string;
 	table: string;
 	constraint: string;
 	dropAutoIndex: boolean;
@@ -99,11 +133,14 @@ export interface CreateView {
 
 export interface DropView {
 	type: 'drop_view';
+	schema: string;
 	name: string;
 }
 
+// views can't be moved between databases with `RENAME TABLE`, renames are same-database only
 export interface RenameView {
 	type: 'rename_view';
+	schema: string;
 	from: string;
 	to: string;
 }
@@ -120,6 +157,9 @@ export interface CreateCheck {
 }
 
 export type JsonStatement =
+	| CreateSchema
+	| DropSchema
+	| RenameSchema
 	| CreateTable
 	| DropTable
 	| RenameTable

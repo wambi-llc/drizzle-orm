@@ -36,6 +36,7 @@ export const fromDrizzleSchema = (
 ): InterimSchema => {
 	const dialect = new SingleStoreDialect();
 	const result: InterimSchema = {
+		schemas: [],
 		tables: [],
 		columns: [],
 		pks: [],
@@ -60,6 +61,7 @@ export const fromDrizzleSchema = (
 
 		result.tables.push({
 			entityType: 'tables',
+			schema: '',
 			name: tableName,
 		});
 
@@ -84,6 +86,7 @@ export const fromDrizzleSchema = (
 
 			result.columns.push({
 				entityType: 'columns',
+				schema: '',
 				table: tableName,
 				name,
 				type: sqlType.startsWith('enum') ? handleEnumType(sqlType) : sqlType,
@@ -111,6 +114,7 @@ export const fromDrizzleSchema = (
 
 			result.pks.push({
 				entityType: 'pks',
+				schema: '',
 				table: tableName,
 				name: name,
 				columns: columnNames,
@@ -130,6 +134,7 @@ export const fromDrizzleSchema = (
 
 			result.indexes.push({
 				entityType: 'indexes',
+				schema: '',
 				table: tableName,
 				name: name,
 				columns: columns,
@@ -147,6 +152,7 @@ export const fromDrizzleSchema = (
 
 			result.indexes.push({
 				entityType: 'indexes',
+				schema: '',
 				table: tableName,
 				name,
 				columns: columns.map((it) => {

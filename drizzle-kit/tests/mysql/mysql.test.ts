@@ -150,7 +150,7 @@ test('add table #5', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to });
 
-	const st0: string[] = [];
+	const st0: string[] = ['CREATE TABLE `folder`.`users` (\n\t`id` int\n);\n'];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -281,14 +281,17 @@ test('add schema + table #1', async () => {
 
 	const to = {
 		schema,
-		users: schema.table('users', {}),
+		users: schema.table('users', { id: int() }),
 	};
 
 	const { sqlStatements: st } = await diff({}, to, []);
 
 	const { sqlStatements: pst } = await push({ db, to });
 
-	const st0: string[] = [];
+	const st0: string[] = [
+		'CREATE DATABASE IF NOT EXISTS `folder`;',
+		'CREATE TABLE `folder`.`users` (\n\t`id` int\n);\n',
+	];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -298,22 +301,19 @@ test('change schema with tables #1', async () => {
 	const schema2 = mysqlSchema('folder2');
 	const from = {
 		schema,
-		users: schema.table('users', {}),
+		users: schema.table('users', { id: int() }),
 	};
 	const to = {
 		schema2,
-		users: schema2.table('users', {}),
+		users: schema2.table('users', { id: int() }),
 	};
 
+	// MySQL can't rename databases, a warning comment is generated
 	const renames = ['folder->folder2'];
 	const { sqlStatements: st } = await diff(from, to, renames);
 
-	await push({ db, to: from });
-	const { sqlStatements: pst } = await push({ db, to, renames });
-
-	const st0: string[] = [];
-	expect(st).toStrictEqual(st0);
-	expect(pst).toStrictEqual(st0);
+	expect(st.length).toBe(1);
+	expect(st[0]).toContain('Renaming databases is not supported by MySQL');
 });
 
 test('change table schema #1', async () => {
@@ -333,7 +333,7 @@ test('change table schema #1', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = ['DROP TABLE `users`;'];
+	const st0: string[] = ['RENAME TABLE `users` TO `folder`.`users`;'];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -342,7 +342,7 @@ test('change table schema #2', async () => {
 	const schema = mysqlSchema('folder');
 	const from = {
 		schema,
-		users: schema.table('users', {}),
+		users: schema.table('users', { id: int() }),
 	};
 	const to = {
 		schema,
@@ -355,7 +355,7 @@ test('change table schema #2', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = ['CREATE TABLE `users` (\n\t`id` int\n);\n'];
+	const st0: string[] = ['RENAME TABLE `folder`.`users` TO `users`;'];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -366,12 +366,12 @@ test('change table schema #3', async () => {
 	const from = {
 		schema1,
 		schema2,
-		users: schema1.table('users', {}),
+		users: schema1.table('users', { id: int() }),
 	};
 	const to = {
 		schema1,
 		schema2,
-		users: schema2.table('users', {}),
+		users: schema2.table('users', { id: int() }),
 	};
 
 	const renames = ['folder1.users->folder2.users'];
@@ -380,7 +380,7 @@ test('change table schema #3', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = [];
+	const st0: string[] = ['RENAME TABLE `folder1`.`users` TO `folder2`.`users`;'];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -390,12 +390,12 @@ test('change table schema #4', async () => {
 	const schema2 = mysqlSchema('folder2');
 	const from = {
 		schema1,
-		users: schema1.table('users', {}),
+		users: schema1.table('users', { id: int() }),
 	};
 	const to = {
 		schema1,
 		schema2, // add schema
-		users: schema2.table('users', {}), // move table
+		users: schema2.table('users', { id: int() }), // move table
 	};
 
 	const renames = ['folder1.users->folder2.users'];
@@ -404,32 +404,45 @@ test('change table schema #4', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = [];
+	const st0: string[] = [
+		'CREATE DATABASE IF NOT EXISTS `folder2`;',
+		'RENAME TABLE `folder1`.`users` TO `folder2`.`users`;',
+	];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
 
-test('change table schema #5', async () => {
+test('change table schema #4.5', async () => {
 	const schema1 = mysqlSchema('folder1');
 	const schema2 = mysqlSchema('folder2');
 	const from = {
 		schema1, // remove schema
-		users: schema1.table('users', {}),
+		users: schema1.table('users', { id: int() }),
 	};
 	const to = {
 		schema2, // add schema
-		users: schema2.table('users', {}), // move table
+		users: schema2.table('users', { id: int() }), // move table
 	};
 
 	const renames = ['folder1.users->folder2.users'];
 	const { sqlStatements: st } = await diff(from, to, renames);
 
+	const st0: string[] = [
+		'CREATE DATABASE IF NOT EXISTS `folder2`;',
+		'RENAME TABLE `folder1`.`users` TO `folder2`.`users`;',
+		'DROP DATABASE `folder1`;',
+	];
+	expect(st).toStrictEqual(st0);
+
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = [];
-	expect(st).toStrictEqual(st0);
-	expect(pst).toStrictEqual(st0);
+	// push only introspects the databases the drizzle schema declares, `folder1`
+	// is not among them anymore, so the table is created rather than moved
+	expect(pst).toStrictEqual([
+		'CREATE DATABASE IF NOT EXISTS `folder2`;',
+		'CREATE TABLE `folder2`.`users` (\n\t`id` int\n);\n',
+	]);
 });
 
 test('change table schema #5', async () => {
@@ -438,12 +451,12 @@ test('change table schema #5', async () => {
 	const from = {
 		schema1,
 		schema2,
-		users: schema1.table('users', {}),
+		users: schema1.table('users', { id: int() }),
 	};
 	const to = {
 		schema1,
 		schema2,
-		users: schema2.table('users2', {}), // rename and move table
+		users: schema2.table('users2', { id: int() }), // rename and move table
 	};
 
 	const renames = ['folder1.users->folder2.users2'];
@@ -452,7 +465,7 @@ test('change table schema #5', async () => {
 	await push({ db, to: from });
 	const { sqlStatements: pst } = await push({ db, to, renames });
 
-	const st0: string[] = [];
+	const st0: string[] = ['RENAME TABLE `folder1`.`users` TO `folder2`.`users2`;'];
 	expect(st).toStrictEqual(st0);
 	expect(pst).toStrictEqual(st0);
 });
@@ -469,15 +482,14 @@ test('change table schema #6', async () => {
 		users: schema2.table('users2', { id: int() }), // rename table
 	};
 
+	// MySQL can't rename databases, a warning comment is generated for the
+	// schema rename, followed by the table rename within the renamed schema
 	const renames = ['folder1->folder2', 'folder2.users->folder2.users2'];
 	const { sqlStatements: st } = await diff(from, to, renames);
 
-	await push({ db, to: from });
-	const { sqlStatements: pst } = await push({ db, to, renames });
-
-	const st0: string[] = [];
-	expect(st).toStrictEqual(st0);
-	expect(pst).toStrictEqual(st0);
+	expect(st.length).toBe(2);
+	expect(st[0]).toContain('Renaming databases is not supported by MySQL');
+	expect(st[1]).toBe('RENAME TABLE `folder2`.`users` TO `folder2`.`users2`;');
 });
 
 test('add table #10', async () => {
@@ -1084,6 +1096,7 @@ test('default on serail', async (t) => {
 	expect(ddl2Err).toStrictEqual([
 		{
 			column: 'column1',
+			schema: '',
 			table: 'table1',
 			type: 'column_unsupported_default_on_autoincrement',
 		},
@@ -1103,6 +1116,7 @@ test('default on autoincrement', async () => {
 	expect(ddl2Err).toStrictEqual([
 		{
 			column: 'column1',
+			schema: '',
 			table: 'table1',
 			type: 'column_unsupported_default_on_autoincrement',
 		},

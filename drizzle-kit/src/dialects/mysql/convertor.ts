@@ -1,6 +1,9 @@
 import type { Simplify } from '../../utils';
 import type { JsonStatement } from './statements';
 
+// '' is the default database of the connection and renders unqualified
+const key = (schema: string, name: string) => schema ? `\`${schema}\`.\`${name}\`` : `\`${name}\``;
+
 export const convertor = <
 	TType extends JsonStatement['type'],
 	TStatement extends Extract<JsonStatement, { type: TType }>,
@@ -17,13 +20,35 @@ export const convertor = <
 	};
 };
 
+// IF NOT EXISTS since the declared database can be the default database
+// of the connection the migration ends up running on
+const createSchema = convertor('create_schema', (st) => {
+	return `CREATE DATABASE IF NOT EXISTS \`${st.name}\`;`;
+});
+
+const dropSchema = convertor('drop_schema', (st) => {
+	return `DROP DATABASE \`${st.name}\`;`;
+});
+
+const renameSchema = convertor('rename_schema', (st) => {
+	return `/*
+ Renaming databases is not supported by MySQL, you'd have to create a new database,
+ move all the tables from the old one to it with \`RENAME TABLE\` and drop the old database.
+
+ Feel free to implement it as a custom migration (https://orm.drizzle.team/docs/kit-custom-migrations),
+ we've generated new database creation statement for you:
+
+ CREATE DATABASE \`${st.to.name}\`;
+*/`;
+});
+
 const createTable = convertor('create_table', (st) => {
-	const { name, columns, pk, checks, indexes, fks } = st.table;
+	const { schema, name, columns, pk, checks, indexes, fks } = st.table;
 
 	const uniqueIndexes = indexes.filter((it) => it.isUnique);
 
 	let statement = '';
-	statement += `CREATE TABLE \`${name}\` (\n`;
+	statement += `CREATE TABLE ${key(schema, name)} (\n`;
 
 	for (let i = 0; i < columns.length; i++) {
 		const column = columns[i];
@@ -72,9 +97,9 @@ const createTable = convertor('create_table', (st) => {
 	// TODO remove from create_table
 	for (const fk of fks) {
 		statement += ',\n';
-		statement += `\tCONSTRAINT \`${fk.name}\` FOREIGN KEY (\`${
-			fk.columns.join('`,`')
-		}\`) REFERENCES \`${fk.tableTo}\`(\`${fk.columnsTo.join('`,`')}\`)`;
+		statement += `\tCONSTRAINT \`${fk.name}\` FOREIGN KEY (\`${fk.columns.join('`,`')}\`) REFERENCES ${
+			key(fk.schemaTo, fk.tableTo)
+		}(\`${fk.columnsTo.join('`,`')}\`)`;
 	}
 
 	for (const check of checks) {
@@ -88,11 +113,11 @@ const createTable = convertor('create_table', (st) => {
 });
 
 const dropTable = convertor('drop_table', (st) => {
-	return `DROP TABLE \`${st.table}\`;`;
+	return `DROP TABLE ${key(st.schema, st.table)};`;
 });
 
 const renameTable = convertor('rename_table', (st) => {
-	return `RENAME TABLE \`${st.from}\` TO \`${st.to}\`;`;
+	return `RENAME TABLE ${key(st.schemaFrom, st.from)} TO ${key(st.schemaTo, st.to)};`;
 });
 
 const addColumn = convertor('add_column', (st) => {
@@ -124,15 +149,17 @@ const addColumn = convertor('add_column', (st) => {
 	const charSetStatement = column.charSet ? ` CHARACTER SET ${column.charSet}` : '';
 	const collationStatement = column.collation ? ` COLLATE ${column.collation}` : '';
 
-	return `ALTER TABLE \`${table}\` ADD \`${name}\` ${type}${charSetStatement}${collationStatement}${primaryKeyStatement}${autoincrementStatement}${defaultStatement}${generatedStatement}${notNullStatement}${onUpdateStatement};`;
+	return `ALTER TABLE ${
+		key(column.schema, table)
+	} ADD \`${name}\` ${type}${charSetStatement}${collationStatement}${primaryKeyStatement}${autoincrementStatement}${defaultStatement}${generatedStatement}${notNullStatement}${onUpdateStatement};`;
 });
 
 const dropColumn = convertor('drop_column', (st) => {
-	return `ALTER TABLE \`${st.column.table}\` DROP COLUMN \`${st.column.name}\`;`;
+	return `ALTER TABLE ${key(st.column.schema, st.column.table)} DROP COLUMN \`${st.column.name}\`;`;
 });
 
 const renameColumn = convertor('rename_column', (st) => {
-	return `ALTER TABLE \`${st.table}\` RENAME COLUMN \`${st.from}\` TO \`${st.to}\`;`;
+	return `ALTER TABLE ${key(st.schema, st.table)} RENAME COLUMN \`${st.from}\` TO \`${st.to}\`;`;
 });
 
 const alterColumn = convertor('alter_column', (st) => {
@@ -156,7 +183,9 @@ const alterColumn = convertor('alter_column', (st) => {
 	const charSetStatement = column.charSet ? ` CHARACTER SET ${column.charSet}` : '';
 	const collationStatement = column.collation ? ` COLLATE ${column.collation}` : '';
 
-	return `ALTER TABLE \`${column.table}\` MODIFY COLUMN \`${column.name}\` ${column.type}${charSetStatement}${collationStatement}${primaryKeyStatement}${autoincrementStatement}${defaultStatement}${generatedStatement}${notNullStatement}${onUpdateStatement};`;
+	return `ALTER TABLE ${
+		key(column.schema, column.table)
+	} MODIFY COLUMN \`${column.name}\` ${column.type}${charSetStatement}${collationStatement}${primaryKeyStatement}${autoincrementStatement}${defaultStatement}${generatedStatement}${notNullStatement}${onUpdateStatement};`;
 });
 
 const recreateColumn = convertor('recreate_column', (st) => {
@@ -172,18 +201,20 @@ const createIndex = convertor('create_index', (st) => {
 		.map((it) => it.isExpression ? `${it.value}` : `\`${it.value}\``)
 		.join(',');
 
-	return `CREATE ${indexPart} \`${name}\` ON \`${table}\` (${uniqueString});`;
+	return `CREATE ${indexPart} \`${name}\` ON ${key(st.index.schema, table)} (${uniqueString});`;
 });
 
 const dropIndex = convertor('drop_index', (st) => {
-	return `DROP INDEX \`${st.index.name}\` ON \`${st.index.table}\`;`;
+	return `DROP INDEX \`${st.index.name}\` ON ${key(st.index.schema, st.index.table)};`;
 });
 
 const createFK = convertor('create_fk', (st) => {
 	const {
 		name,
+		schema,
 		table,
 		columns,
+		schemaTo,
 		tableTo,
 		columnsTo,
 		onDelete,
@@ -194,7 +225,9 @@ const createFK = convertor('create_fk', (st) => {
 	const fromColumnsString = columns.map((it) => `\`${it}\``).join(',');
 	const toColumnsString = columnsTo.map((it) => `\`${it}\``).join(',');
 
-	return `ALTER TABLE \`${table}\` ADD CONSTRAINT \`${name}\` FOREIGN KEY (${fromColumnsString}) REFERENCES \`${tableTo}\`(${toColumnsString})${onDeleteStatement}${onUpdateStatement};`;
+	return `ALTER TABLE ${key(schema, table)} ADD CONSTRAINT \`${name}\` FOREIGN KEY (${fromColumnsString}) REFERENCES ${
+		key(schemaTo, tableTo)
+	}(${toColumnsString})${onDeleteStatement}${onUpdateStatement};`;
 });
 
 {
@@ -202,31 +235,33 @@ const createFK = convertor('create_fk', (st) => {
 }
 
 const createPK = convertor('create_pk', (st) => {
-	return `ALTER TABLE \`${st.pk.table}\` ADD PRIMARY KEY (\`${st.pk.columns.join('`,`')}\`);`;
+	return `ALTER TABLE ${key(st.pk.schema, st.pk.table)} ADD PRIMARY KEY (\`${st.pk.columns.join('`,`')}\`);`;
 });
 
 const dropPK = convertor('drop_pk', (st) => {
-	return `ALTER TABLE \`${st.pk.table}\` DROP PRIMARY KEY;`;
+	return `ALTER TABLE ${key(st.pk.schema, st.pk.table)} DROP PRIMARY KEY;`;
 });
 
 const createCheck = convertor('create_check', (st) => {
-	return `ALTER TABLE \`${st.check.table}\` ADD CONSTRAINT \`${st.check.name}\` CHECK (${st.check.value});`;
+	return `ALTER TABLE ${
+		key(st.check.schema, st.check.table)
+	} ADD CONSTRAINT \`${st.check.name}\` CHECK (${st.check.value});`;
 });
 
 const dropConstraint = convertor('drop_constraint', (st) => {
-	const statements = [`ALTER TABLE \`${st.table}\` DROP CONSTRAINT \`${st.constraint}\`;`];
-	if (st.dropAutoIndex) statements.push(`DROP INDEX \`${st.constraint}\` ON \`${st.table}\``);
+	const statements = [`ALTER TABLE ${key(st.schema, st.table)} DROP CONSTRAINT \`${st.constraint}\`;`];
+	if (st.dropAutoIndex) statements.push(`DROP INDEX \`${st.constraint}\` ON ${key(st.schema, st.table)}`);
 	return statements;
 });
 
 const createView = convertor('create_view', (st) => {
-	const { definition, name, algorithm, sqlSecurity, withCheckOption } = st.view;
+	const { definition, schema, name, algorithm, sqlSecurity, withCheckOption } = st.view;
 
 	let statement = `CREATE `;
 	statement += st.replace ? `OR REPLACE ` : ''; // NO replace was in the code
 	statement += algorithm ? `ALGORITHM = ${algorithm} ` : '';
 	statement += sqlSecurity ? `SQL SECURITY ${sqlSecurity} ` : '';
-	statement += `VIEW \`${name}\` AS (${definition})`;
+	statement += `VIEW ${key(schema, name)} AS (${definition})`;
 	statement += withCheckOption ? ` WITH ${withCheckOption} CHECK OPTION` : '';
 
 	statement += ';';
@@ -235,20 +270,20 @@ const createView = convertor('create_view', (st) => {
 });
 
 const dropView = convertor('drop_view', (st) => {
-	return `DROP VIEW \`${st.name}\`;`;
+	return `DROP VIEW ${key(st.schema, st.name)};`;
 });
 
 const renameView = convertor('rename_view', (st) => {
-	return `RENAME TABLE \`${st.from}\` TO \`${st.to}\`;`;
+	return `RENAME TABLE ${key(st.schema, st.from)} TO ${key(st.schema, st.to)};`;
 });
 
 const alterView = convertor('alter_view', (st) => {
-	const { name, definition, withCheckOption, algorithm, sqlSecurity } = st.view;
+	const { schema, name, definition, withCheckOption, algorithm, sqlSecurity } = st.view;
 
 	let statement = `ALTER `;
 	statement += `ALGORITHM = ${algorithm} `;
 	statement += `SQL SECURITY ${sqlSecurity} `;
-	statement += `VIEW \`${name}\` AS ${definition}`;
+	statement += `VIEW ${key(schema, name)} AS ${definition}`;
 	statement += withCheckOption ? ` WITH ${withCheckOption} CHECK OPTION` : '';
 	statement += ';';
 
@@ -256,6 +291,9 @@ const alterView = convertor('alter_view', (st) => {
 });
 
 const convertors = [
+	createSchema,
+	dropSchema,
+	renameSchema,
 	createTable,
 	dropTable,
 	renameTable,

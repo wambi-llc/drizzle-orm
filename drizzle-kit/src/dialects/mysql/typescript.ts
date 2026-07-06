@@ -94,6 +94,13 @@ const dbColumnName = ({ name, casing, withMode = false }: { name: string; casing
 	assertUnreachable(casing);
 };
 
+// tables of non-default databases get an `In${db}` suffix to avoid collisions with
+// same-named tables of the default database
+export const paramNameFor = (name: string, schema: string) => {
+	const schemaSuffix = schema ? `In${schema.capitalise()}` : '';
+	return `${name}${schemaSuffix}`;
+};
+
 export const ddlToTypeScript = (
 	ddl: MysqlDDL,
 	viewColumns: ViewColumn[],
@@ -103,9 +110,18 @@ export const ddlToTypeScript = (
 	const withCasing = prepareCasing(casing);
 
 	for (const fk of ddl.fks.list()) {
-		const relation = `${fk.table}-${fk.tableTo}`;
+		const relation = `${fk.schema}.${fk.table}-${fk.schemaTo}.${fk.tableTo}`;
 		relations.add(relation);
 	}
+
+	// databases beyond the connection's default one, both declared and derived from entities
+	const schemas = Object.fromEntries(
+		[
+			...ddl.schemas.list().map((it) => it.name),
+			...ddl.tables.list().map((it) => it.schema),
+			...ddl.views.list().map((it) => it.schema),
+		].filter((it) => it !== '').map((it) => [it, withCasing(it)]),
+	);
 
 	const imports = new Set<string>([
 		vendor === 'mysql' ? 'mysqlTable' : 'signlestoreTable',
@@ -134,23 +150,32 @@ export const ddlToTypeScript = (
 		}
 	}
 
+	const schemaStatements = Object.entries(schemas).map(([name, key]) => {
+		return `export const ${key} = ${vendor === 'mysql' ? 'mysqlSchema' : 'singlestoreSchema'}("${name}");`;
+	});
+
 	const tableStatements = [] as string[];
 	for (const table of ddl.tables.list()) {
-		let statement = `export const ${withCasing(table.name)} = ${vendor}Table("${table.name}", {\n`;
+		const tableFn = table.schema ? `${schemas[table.schema]}.table` : `${vendor}Table`;
+		const filter = { schema: table.schema, table: table.name };
+
+		let statement = `export const ${
+			withCasing(paramNameFor(table.name, table.schema))
+		} = ${tableFn}("${table.name}", {\n`;
 		statement += createTableColumns(
-			ddl.columns.list({ table: table.name }),
-			ddl.pks.one({ table: table.name }),
-			ddl.fks.list({ table: table.name }),
+			ddl.columns.list(filter),
+			ddl.pks.one(filter),
+			ddl.fks.list(filter),
 			withCasing,
 			casing,
 			vendor,
 		);
 		statement += '}';
 
-		const fks = ddl.fks.list({ table: table.name });
-		const indexes = ddl.indexes.list({ table: table.name });
-		const checks = ddl.checks.list({ table: table.name });
-		const pk = ddl.pks.one({ table: table.name });
+		const fks = ddl.fks.list(filter);
+		const indexes = ddl.indexes.list(filter);
+		const checks = ddl.checks.list(filter);
+		const pk = ddl.pks.one(filter);
 
 		// more than 2 fields or self reference or cyclic
 		const filteredFKs = fks.filter((it) => {
@@ -181,10 +206,11 @@ export const ddlToTypeScript = (
 	const viewsStatements = [] as string[];
 	for (const view of ddl.views.list()) {
 		const { name, algorithm, definition, sqlSecurity, withCheckOption } = view;
-		const columns = viewColumns.filter((x) => x.view === view.name);
+		const columns = viewColumns.filter((x) => x.schema === view.schema && x.view === view.name);
+		const viewFn = view.schema ? `${schemas[view.schema]}.view` : `${vendor}View`;
 
 		let statement = '';
-		statement += `export const ${withCasing(name)} = ${vendor}View("${name}", {\n`;
+		statement += `export const ${withCasing(paramNameFor(name, view.schema))} = ${viewFn}("${name}", {\n`;
 		statement += createViewColumns(columns, withCasing, casing, vendor);
 		statement += '})';
 
@@ -203,6 +229,7 @@ export const ddlToTypeScript = (
 	} } from "drizzle-orm/${vendor}-core"\nimport { sql } from "drizzle-orm"\n\n`;
 
 	let decalrations = '';
+	decalrations += schemaStatements.length > 0 ? schemaStatements.join('\n') + '\n\n' : '';
 	decalrations += tableStatements.join('\n\n');
 	decalrations += '\n';
 	decalrations += viewsStatements.join('\n\n');
@@ -228,13 +255,13 @@ export const ddlToTypeScript = (
 };
 
 const isCyclic = (fk: ForeignKey) => {
-	const key = `${fk.table}-${fk.tableTo}`;
-	const reverse = `${fk.tableTo}-${fk.table}`;
+	const key = `${fk.schema}.${fk.table}-${fk.schemaTo}.${fk.tableTo}`;
+	const reverse = `${fk.schemaTo}.${fk.tableTo}-${fk.schema}.${fk.table}`;
 	return relations.has(key) && relations.has(reverse);
 };
 
 const isSelf = (fk: ForeignKey) => {
-	return fk.table === fk.tableTo;
+	return fk.schema === fk.schemaTo && fk.table === fk.tableTo;
 };
 
 const column = (
@@ -343,11 +370,11 @@ const createTableColumns = (
 			if (paramsStr) {
 				statement += `.references(()${typeSuffix} => ${
 					casing(
-						fk.tableTo,
+						paramNameFor(fk.tableTo, fk.schemaTo),
 					)
 				}.${casing(fk.columnsTo[0])}, ${paramsStr} )`;
 			} else {
-				statement += `.references(()${typeSuffix} => ${casing(fk.tableTo)}.${
+				statement += `.references(()${typeSuffix} => ${casing(paramNameFor(fk.tableTo, fk.schemaTo))}.${
 					casing(
 						fk.columnsTo[0],
 					)
@@ -418,7 +445,7 @@ const createTableFKs = (
 	let statement = '';
 
 	for (const it of fks) {
-		const tableTo = isSelf(it) ? 'table' : `${casing(it.tableTo)}`;
+		const tableTo = isSelf(it) ? 'table' : `${casing(paramNameFor(it.tableTo, it.schemaTo))}`;
 		const columnsFrom = it.columns.map((x) => `table.${casing(x)}`).join(', ');
 		const columnsTo = it.columnsTo.map((x) => `${tableTo}.${casing(x)}`).join(', ');
 		statement += `\tforeignKey({\n`;

@@ -44,6 +44,15 @@ export const handle = async (
 
 	const text = outputFormat() === 'text';
 	const filter = prepareEntityFilter('mysql', filters, []);
+
+	// pulling from databases other than the connection's default one is opt-in via `schemaFilter`,
+	// the matching itself happens inside `fromDatabase` via the entity filter
+	const extraDatabases = filters.schemas
+		? (await db.db.query<{ SCHEMA_NAME: string }>(
+			`SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys');`,
+		)).map((it) => it.SCHEMA_NAME).filter((it) => it !== db.database)
+		: [];
+
 	let schema: Awaited<ReturnType<typeof fromDatabaseForDrizzle>>;
 	if (text) {
 		const progress = new IntrospectProgress();
@@ -56,9 +65,10 @@ export const handle = async (
 			},
 			filter,
 			migrations,
+			schemas: extraDatabases,
 		}));
 	} else {
-		schema = await fromDatabaseForDrizzle(db.db, db.database, filter, () => {}, migrations);
+		schema = await fromDatabaseForDrizzle(db.db, db.database, filter, () => {}, migrations, extraDatabases);
 	}
 	const { ddl, errors } = interimToDDL(schema);
 
@@ -86,6 +96,7 @@ export const handle = async (
 		const { sqlStatements } = await ddlDiff(
 			createDDL(),
 			ddl,
+			mockResolver(new Set()),
 			mockResolver(new Set()),
 			mockResolver(new Set()),
 			mockResolver(new Set()),
@@ -157,10 +168,12 @@ export const introspect = async (props: {
 		table: string;
 		schema: string;
 	};
+	/* databases declared via mysqlSchema()/mysqlDatabase() on top of the connection's default one */
+	schemas?: string[];
 }) => {
-	const { db, database, progress, filter, migrations } = props;
+	const { db, database, progress, filter, migrations, schemas } = props;
 	const pcb = props.progressCallback ?? (() => {});
 
-	const res = await renderWithTask(progress, fromDatabaseForDrizzle(db, database, filter, pcb, migrations));
+	const res = await renderWithTask(progress, fromDatabaseForDrizzle(db, database, filter, pcb, migrations, schemas));
 	return { schema: res };
 };

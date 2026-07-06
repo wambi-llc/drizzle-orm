@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { render } from 'hanji';
 import { extractMysqlExisting } from '../../dialects/drizzle';
-import type { Column, MysqlDDL, Table, View } from '../../dialects/mysql/ddl';
+import type { Column, MysqlDDL, Schema, Table, View } from '../../dialects/mysql/ddl';
 import { interimToDDL } from '../../dialects/mysql/ddl';
 import { ddlDiff } from '../../dialects/mysql/diff';
 import type { JsonStatement } from '../../dialects/mysql/statements';
@@ -56,11 +56,8 @@ export const handle = async (
 			'Pulling schema from database...',
 		);
 
-	const { schema: interimFromDB } = await introspect({ db, database, progress, filter, migrations });
+	const interimFromFiles = fromDrizzleSchema(res.schemas, res.tables, res.views);
 
-	const interimFromFiles = fromDrizzleSchema(res.tables, res.views);
-
-	const { ddl: ddl1 } = interimToDDL(interimFromDB);
 	const { ddl: ddl2, errors: errors1 } = interimToDDL(interimFromFiles);
 
 	if (errors1.length > 0) {
@@ -70,9 +67,44 @@ export const handle = async (
 		});
 	}
 
+	// a database declared with the connection's default database name is the default database
+	ddl2.schemas.delete({ name: database });
+	const normalized = ddl2.entities.update({ set: { schema: '' }, where: { schema: database } });
+	if (normalized.status === 'CONFLICT') {
+		const dupes = normalized.data.map((it) => `\`${it.name}\``).join(', ');
+		throw new CommandOutputCliError(
+			'push',
+			`"${database}" is the default database of the connection, entities declared within mysqlSchema("${database}") conflict with the ones declared without a database: ${dupes}`,
+			{ stage: 'ddl', dialect: 'mysql' },
+		);
+	}
+	ddl2.fks.update({ set: { schemaTo: '' }, where: { schemaTo: database } });
+
+	// only introspect the databases the drizzle schema mentions, other
+	// databases of the server must stay invisible to the diff
+	const declaredSchemas = [
+		...new Set([
+			...ddl2.schemas.list().map((it) => it.name),
+			...ddl2.tables.list().map((it) => it.schema),
+			...ddl2.views.list().map((it) => it.schema),
+		]),
+	].filter((it) => it !== '');
+
+	const { schema: interimFromDB } = await introspect({
+		db,
+		database,
+		progress,
+		filter,
+		migrations,
+		schemas: declaredSchemas,
+	});
+
+	const { ddl: ddl1 } = interimToDDL(interimFromDB);
+
 	const { sqlStatements, statements, groupedStatements } = await ddlDiff(
 		ddl1,
 		ddl2,
+		resolver<Schema>('schema', hints),
 		resolver<Table>('table', hints),
 		resolver<Column>('column', hints),
 		resolver<View>('view', hints),
@@ -130,8 +162,8 @@ export const handle = async (
 	return { status: 'ok' as const, dialect: 'mysql' };
 };
 
-const identifier = ({ table, column }: { table?: string; column?: string }) => {
-	return [table, column].filter(Boolean).map((t) => `\`${t}\``).join('.');
+const identifier = ({ schema, table, column }: { schema?: string; table?: string; column?: string }) => {
+	return [schema, table, column].filter(Boolean).map((t) => `\`${t}\``).join('.');
 };
 export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2: MysqlDDL, hints: HintsHandler) => {
 	const json = outputFormat() === 'json';
@@ -145,10 +177,41 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 	});
 
 	for (const statement of filtered) {
+		// the warning comment generated for a database rename is not a runnable statement
+		if (statement.type === 'rename_schema') {
+			throw new UnsupportedSchemaChangeError({
+				kind: 'rename_schema_unsupported',
+				from: statement.from.name,
+				to: statement.to.name,
+				dialect: 'mysql',
+			});
+		}
+
+		// MySQL resolves unqualified table references against the table's own database,
+		// a table of another database can't reference a table of the default database
+		const fks = statement.type === 'create_table'
+			? statement.table.fks
+			: statement.type === 'create_fk'
+			? [statement.fk]
+			: [];
+		for (const fk of fks) {
+			if (fk.schema !== '' && fk.schemaTo === '') {
+				throw new UnsupportedSchemaChangeError({
+					kind: 'fk_default_database_unsupported',
+					schema: fk.schema,
+					table: fk.table,
+					table_to: fk.tableTo,
+					dialect: 'mysql',
+				});
+			}
+		}
+
 		if (statement.type === 'drop_table') {
-			const entity = ['public', statement.table] as const;
+			const entity = [statement.schema, statement.table] as const;
 			if (hints.matchConfirm('table', entity)) continue;
-			const res = await db.query(`select 1 from ${identifier({ table: statement.table })} limit 1`);
+			const res = await db.query(
+				`select 1 from ${identifier({ schema: statement.schema, table: statement.table })} limit 1`,
+			);
 
 			if (res.length > 0) {
 				if (useHints) {
@@ -162,9 +225,9 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 
 		if (statement.type === 'drop_column') {
 			const column = statement.column;
-			const entity = ['public', column.table, column.name] as const;
+			const entity = [column.schema, column.table, column.name] as const;
 			if (hints.matchConfirm('column', entity)) continue;
-			const res = await db.query(`select 1 from ${identifier({ table: column.table })} limit 1`);
+			const res = await db.query(`select 1 from ${identifier({ schema: column.schema, table: column.table })} limit 1`);
 			if (res.length === 0) continue;
 
 			if (useHints) {
@@ -181,9 +244,9 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 
 		// drop pk
 		if (statement.type === 'drop_pk') {
-			const { table, columns } = statement.pk;
-			const id = identifier({ table });
-			const entity = ['public', table, statement.pk.name] as const;
+			const { schema, table, columns } = statement.pk;
+			const id = identifier({ schema, table });
+			const entity = [schema, table, statement.pk.name] as const;
 			if (hints.matchConfirm('primary_key', entity)) continue;
 			const res = await db.query(
 				`select 1 from ${id} limit 1`,
@@ -201,8 +264,8 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 				}
 			}
 
-			const fks = ddl2.fks.list({ tableTo: table });
-			const indexes = ddl2.indexes.list({ isUnique: true, table: table });
+			const fks = ddl2.fks.list({ schemaTo: schema, tableTo: table });
+			const indexes = ddl2.indexes.list({ isUnique: true, schema, table });
 
 			const fkFound = fks.filter((fk) => {
 				if (fk.columnsTo.length !== columns.length) return false;
@@ -241,11 +304,11 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 		}
 
 		if (statement.type === 'alter_column') {
-			const tableName = identifier({ table: statement.origin.table });
+			const tableName = identifier({ schema: statement.origin.schema, table: statement.origin.table });
 			const columnName = identifier({ column: statement.origin.column });
 
 			if (statement.diff.type) {
-				const entity = ['public', statement.column.table, statement.column.name] as const;
+				const entity = [statement.column.schema, statement.column.table, statement.column.name] as const;
 				if (!hints.matchConfirm('column', entity)) {
 					if (useHints) {
 						hints.pushMissingHint({
@@ -275,10 +338,10 @@ export const suggestions = async (db: DB, jsonStatements: JsonStatement[], ddl2:
 		}
 
 		if (statement.type === 'create_fk' && statement.cause !== 'alter_pk') {
-			const { columnsTo, table, tableTo, columns } = statement.fk;
+			const { columnsTo, table, schemaTo, tableTo, columns } = statement.fk;
 
-			const indexes = ddl2.indexes.list({ isUnique: true, table: tableTo });
-			const pk = ddl2.pks.one({ table: tableTo });
+			const indexes = ddl2.indexes.list({ isUnique: true, schema: schemaTo, table: tableTo });
+			const pk = ddl2.pks.one({ schema: schemaTo, table: tableTo });
 
 			const columnsToSet = new Set(columnsTo);
 

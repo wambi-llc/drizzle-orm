@@ -1,7 +1,7 @@
 import type { Relations } from 'drizzle-orm/_relations';
 import type { AnyMySqlTable } from 'drizzle-orm/mysql-core';
 import type { MysqlCredentials } from '../cli/validations/mysql';
-import type { Column, Table, View } from '../dialects/mysql/ddl';
+import type { Column, Schema, Table, View } from '../dialects/mysql/ddl';
 import { createDDL, interimToDDL } from '../dialects/mysql/ddl';
 import type { MysqlSnapshot } from '../dialects/mysql/snapshot';
 import { originUUID } from '../utils';
@@ -16,7 +16,7 @@ export const generateDrizzleJson = async (
 	const { fromDrizzleSchema, prepareFromExports } = await import('../dialects/mysql/drizzle');
 	const prepared = prepareFromExports(imports);
 
-	const interim = fromDrizzleSchema(prepared.tables, prepared.views);
+	const interim = fromDrizzleSchema(prepared.schemas, prepared.tables, prepared.views);
 
 	const { ddl, errors } = interimToDDL(interim);
 
@@ -47,6 +47,7 @@ export const generateMigration = async (
 	const { sqlStatements } = await ddlDiff(
 		from,
 		to,
+		resolver<Schema>('schema'),
 		resolver<Table>('table'),
 		resolver<Column>('column'),
 		resolver<View>('view'),
@@ -79,15 +80,36 @@ export const pushSchema = async (
 
 	const prepared = prepareFromExports(imports);
 
-	const prev = await fromDatabaseForDrizzle(db, database, () => true, () => {}, migrations);
-	const cur = fromDrizzleSchema(prepared.tables, prepared.views);
+	const cur = fromDrizzleSchema(prepared.schemas, prepared.tables, prepared.views);
+	const { ddl: to } = interimToDDL(cur);
+
+	// a database declared with the connection's default database name is the default database
+	to.schemas.delete({ name: database });
+	const normalized = to.entities.update({ set: { schema: '' }, where: { schema: database } });
+	if (normalized.status === 'CONFLICT') {
+		const dupes = normalized.data.map((it) => `\`${it.name}\``).join(', ');
+		throw new Error(
+			`"${database}" is the default database of the connection, entities declared within mysqlSchema("${database}") conflict with the ones declared without a database: ${dupes}`,
+		);
+	}
+	to.fks.update({ set: { schemaTo: '' }, where: { schemaTo: database } });
+
+	const declaredSchemas = [
+		...new Set([
+			...to.schemas.list().map((it) => it.name),
+			...to.tables.list().map((it) => it.schema),
+			...to.views.list().map((it) => it.schema),
+		]),
+	].filter((it) => it !== '');
+
+	const prev = await fromDatabaseForDrizzle(db, database, () => true, () => {}, migrations, declaredSchemas);
 
 	const { ddl: from } = interimToDDL(prev);
-	const { ddl: to } = interimToDDL(cur);
 
 	const { sqlStatements, statements } = await ddlDiff(
 		from,
 		to,
+		resolver<Schema>('schema'),
 		resolver<Table>('table'),
 		resolver<Column>('column'),
 		resolver<View>('view'),
@@ -162,4 +184,4 @@ export const startStudioServer = async (
 	});
 };
 
-export { upToV6 as up } from '../cli/commands/up-mysql';
+export { upToV7 as up } from '../cli/commands/up-mysql';

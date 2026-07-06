@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { writeFileSync } from 'fs';
+import type { MysqlEntity } from '../../dialects/mysql/ddl';
 import { createDDL } from '../../dialects/mysql/ddl';
 import { Binary, Varbinary } from '../../dialects/mysql/grammar';
-import type { SchemaV1, SingleStoreSnapshot } from '../../dialects/singlestore/snapshot';
+import type { SchemaV1, SingleStoreSnapshot, SingleStoreSnapshotV2 } from '../../dialects/singlestore/snapshot';
 import { trimChar } from '../../utils';
 import { prepareOutFolder, validateWithReport } from '../../utils/utils-node';
 import { outputFormat } from '../context';
@@ -23,7 +24,7 @@ export const upSinglestoreHandler = (out: string): string[] => {
 		.forEach((it) => {
 			const path = it.path;
 
-			const snapshot = upToV2(it.raw);
+			const snapshot = upToV3(it.raw);
 
 			if (outputFormat() === 'text') console.log(`[${chalk.green('✓')}] ${path}`);
 
@@ -37,13 +38,40 @@ export const upSinglestoreHandler = (out: string): string[] => {
 	return upgraded;
 };
 
-export const upToV2 = (it: Record<string, any>): SingleStoreSnapshot => {
+export const upToV3 = (it: Record<string, any>): SingleStoreSnapshot => {
+	const raw = Number(it['version']) === 2 ? it as SingleStoreSnapshotV2 : upToV2(it);
+
+	// v3 shares the mysql DDL where entities are qualified with the database name,
+	// '' stands for the default database
+	const ddl = raw.ddl.map((entity) => {
+		const { entityType } = entity;
+		if (entityType === 'fks') return { schema: '', schemaTo: '', ...entity };
+		if (
+			entityType === 'tables' || entityType === 'columns' || entityType === 'pks'
+			|| entityType === 'indexes' || entityType === 'checks' || entityType === 'views'
+		) {
+			return { schema: '', ...entity };
+		}
+		return entity;
+	}) as MysqlEntity[];
+
+	return {
+		version: '3',
+		dialect: 'singlestore',
+		id: raw.id,
+		prevIds: raw.prevIds,
+		ddl,
+		renames: raw.renames as string[],
+	};
+};
+
+export const upToV2 = (it: Record<string, any>): SingleStoreSnapshotV2 => {
 	const json = it as SchemaV1;
 
 	const ddl = createDDL();
 
 	for (const table of Object.values(json.tables)) {
-		ddl.tables.push({ name: table.name });
+		ddl.tables.push({ schema: '', name: table.name });
 
 		for (const column of Object.values(table.columns)) {
 			let def = typeof column.default === 'undefined' ? null : String(column.default);
@@ -61,6 +89,7 @@ export const upToV2 = (it: Record<string, any>): SingleStoreSnapshot => {
 			}
 
 			ddl.columns.push({
+				schema: '',
 				table: table.name,
 				name: column.name,
 				type: column.type,
@@ -98,6 +127,7 @@ export const upToV2 = (it: Record<string, any>): SingleStoreSnapshot => {
 			});
 
 			ddl.indexes.push({
+				schema: '',
 				table: table.name,
 				name: index.name,
 				columns,
@@ -132,6 +162,7 @@ export const upToV2 = (it: Record<string, any>): SingleStoreSnapshot => {
 				|| `${table.name}_${unique.columns.join('_')}` === unique.name;
 
 			ddl.indexes.push({
+				schema: '',
 				table: table.name,
 				name: unique.name,
 				columns,
@@ -169,6 +200,7 @@ export const upToV2 = (it: Record<string, any>): SingleStoreSnapshot => {
 
 		for (const pk of Object.values(table.compositePrimaryKeys)) {
 			ddl.pks.push({
+				schema: '',
 				table: table.name,
 				name: 'PRIMARY',
 				columns: pk.columns,

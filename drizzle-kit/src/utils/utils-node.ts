@@ -245,7 +245,7 @@ const cockroachSnapshotValidator = (snapshot: object): ValidationResult => {
 };
 
 const mysqlValidator = (snapshot: object): ValidationResult => {
-	const versionError = assertVersion(snapshot, 6);
+	const versionError = assertVersion(snapshot, 7);
 	if (versionError) return { status: versionError };
 
 	const { success } = mysqlSnapshotValidator.parse(snapshot);
@@ -277,7 +277,7 @@ const sqliteValidator = (snapshot: object): ValidationResult => {
 };
 
 const singlestoreValidator = (snapshot: object): ValidationResult => {
-	const versionError = assertVersion(snapshot, 2);
+	const versionError = assertVersion(snapshot, 3);
 	if (versionError) return { status: versionError };
 
 	const { success } = singlestoreSnapshotValidator.parse(snapshot);
